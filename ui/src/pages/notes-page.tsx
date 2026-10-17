@@ -92,7 +92,7 @@ export function NotesPage() {
       {/* One editor surface: borderless text area with a status bar, like a code editor. */}
       <div className="whisli-line mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
         <textarea
-          className="min-h-0 w-full flex-1 resize-none bg-transparent px-5 py-4 font-mono text-[13px] leading-6 outline-none placeholder:text-[var(--muted)] placeholder:opacity-60"
+          className="min-h-0 w-full flex-1 resize-none bg-transparent px-5 py-4 font-mono text-[11px] leading-[18px] outline-none placeholder:text-[var(--muted)] placeholder:opacity-60"
           value={text}
           maxLength={maxLength}
           spellCheck={false}
