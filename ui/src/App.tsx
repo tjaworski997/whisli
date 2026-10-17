@@ -1,8 +1,8 @@
-import { Boxes, CircleX, House, Lightbulb, LogOut, MapPin, Moon, Settings, Sun, Workflow, Zap, type LucideIcon } from "lucide-react"
+import { Boxes, CircleX, House, Lightbulb, LogOut, MapPin, Moon, NotebookPen, Settings, Sun, Workflow, Zap, type LucideIcon } from "lucide-react"
 import { Fragment, lazy, Suspense, useEffect, useState, type ReactNode } from "react"
 
 import { Muted } from "@/components/page"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { MessageBox } from "@/components/ui/message-box"
 import { useLiveRefresh } from "@/hooks/use-live-refresh"
 import { useTheme } from "@/hooks/use-theme"
@@ -18,6 +18,7 @@ import { DeviceListPage } from "@/pages/device-list-page"
 import { HomePage } from "@/pages/home-page"
 import { LoginPage } from "@/pages/login-page"
 import { LogsPage } from "@/pages/logs-page"
+import { NotesPage } from "@/pages/notes-page"
 import { MqttPage, NetworkPage } from "@/pages/network-page"
 import { LightPresetsPage } from "@/pages/light-presets-page"
 import { LightSettingsPage } from "@/pages/light-settings-page"
@@ -101,6 +102,7 @@ function Panel() {
       case "logs": return <LogsPage />
       case "test": return <TestPage devices={deviceList} onRefreshDevices={refreshDevices} />
       case "system": return <SystemPage />
+      case "notes": return <NotesPage />
       case "device":
         if (devices === null) return <Muted>{t("connecting")}</Muted>
         if (device?.kind === "relay") return <RelayPage key={device.id} relay={device} onBack={backToDevices} onRefresh={refreshDevices} onRemove={() => setPendingRemoval(device)} />
@@ -116,7 +118,11 @@ function Panel() {
       <b className="text-base">{t("appName")}</b>
       <span className="whisli-muted ml-2 hidden sm:inline">{t("appSubtitle")}</span>
       {pollsDevices && !connected && <span role="status" className="whisli-status-error ml-2 inline-flex min-w-0 items-center gap-1.5 text-xs"><CircleX className="size-4 shrink-0" /><span className="truncate">{t("controllerUnreachable")}</span></span>}
-      <select className="whisli-select ml-auto h-8 text-xs" aria-label={t("language")} value={locale} onChange={event => setLocale(event.target.value as Locale)}>
+      <NavLink to={{ page: "notes" }} onNavigate={navigate} current={route.page === "notes"} title={t("notesTitle")}
+        className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "ml-auto", route.page === "notes" && "whisli-nav-active")}>
+        <NotebookPen className="size-4" />
+      </NavLink>
+      <select className="whisli-select h-8 text-xs" aria-label={t("language")} value={locale} onChange={event => setLocale(event.target.value as Locale)}>
         {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
       <Button variant="ghost" size="icon" aria-label={t(theme === "light" ? "themeDark" : "themeLight")} title={t("theme")} onClick={toggleTheme}>
@@ -168,8 +174,8 @@ function Panel() {
  * Menu entry as a real link: right click, middle click and Ctrl/Cmd+click open it in a new tab or
  * window; a plain click stays in the app without reloading.
  */
-function NavLink({ to, current, className, onNavigate, children }: { to: AppRoute; current: boolean; className: string; onNavigate: (route: AppRoute) => void; children: ReactNode }) {
-  return <a href={routeHash(to)} aria-current={current ? "page" : undefined} className={className}
+function NavLink({ to, current, className, title, onNavigate, children }: { to: AppRoute; current: boolean; className: string; title?: string; onNavigate: (route: AppRoute) => void; children: ReactNode }) {
+  return <a href={routeHash(to)} aria-current={current ? "page" : undefined} className={className} title={title} aria-label={title}
     onClick={event => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
       event.preventDefault()

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "whisli/net/json.hpp"
+#include "whisli/system/notes.hpp"
 #include "whisli/version.generated.hpp"
 
 namespace whisli::system::backup {
@@ -310,6 +311,8 @@ String exportJson(const String& passphrase) {
   for (const char* space : kNamespaces) appendEntries(body, first, space, 0);
   for (const char* space : kMergedNamespaces) appendEntries(body, first, space, 1);
   body += "\n]";
+  const auto note = notes::load();
+  body += ",\"notes\":{\"text\":\"" + whisli::net::jsonEscape(note.text) + "\",\"modified\":" + String(note.modified) + "}";
   if (!passphrase.isEmpty()) {
     String secret = "[";
     bool firstSecret = true;
@@ -331,6 +334,9 @@ ImportResult import(const char* json, size_t length, const String& passphrase) {
   std::vector<Entry> entries;
   String salt, iv, data;
   long iterations = 0;
+  bool hasNote = false;  // backups from before notes leave the current one alone
+  String noteText;
+  long noteModified = 0;
   if (!reader.take('{')) return fail("To nie jest plik kopii konfiguracji Whisli.");
   if (!reader.peek('}')) {
     do {
@@ -343,6 +349,20 @@ ImportResult import(const char* json, size_t length, const String& passphrase) {
       } else if (field == "entries") {
         hasEntries = true;
         if (!parseEntries(reader, entries, false)) return fail("Plik zawiera nieprawidłowy wpis.");
+      } else if (field == "notes") {
+        hasNote = true;
+        if (!reader.take('{')) return fail("Plik jest uszkodzony.");
+        if (!reader.peek('}')) {
+          do {
+            String key;
+            if (!(reader.string(key) && reader.take(':'))) return fail("Plik jest uszkodzony.");
+            if (key == "text") { if (!reader.string(noteText)) return fail("Plik jest uszkodzony."); }
+            else if (key == "modified") { if (!reader.number(noteModified)) return fail("Plik jest uszkodzony."); }
+            else if (!reader.skip()) return fail("Plik jest uszkodzony.");
+          } while (reader.take(','));
+        }
+        if (!reader.take('}')) return fail("Plik jest uszkodzony.");
+        if (noteText.length() > notes::kMaxBytes) return fail("Notatka w pliku jest za długa.");
       } else if (field == "secrets") {
         result.secretsPresent = true;
         if (!reader.take('{')) return fail("Plik jest uszkodzony.");
@@ -403,6 +423,7 @@ ImportResult import(const char* json, size_t length, const String& passphrase) {
     nvs_close(handle);
     if (written != ESP_OK) return fail("Nie udało się zapisać ustawień sieci.");
   }
+  if (hasNote && !notes::save(noteText, static_cast<uint32_t>(noteModified))) return fail("Nie udało się zapisać notatki.");
   return result;
 }
 

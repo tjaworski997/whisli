@@ -523,5 +523,17 @@
   "mqttTopicStatus": "online / offline — dostępność sterownika",
   "mqttTopicLightState": "stan światła (JSON: state, brightness, color_temp, color)",
   "mqttTopicLightSet": "sterowanie światłem z Home Assistant, ten sam JSON",
-  "mqttTopicInput": "gest przycisku: click, doubleClick, tripleClick, longClick, hold"
+  "mqttTopicInput": "gest przycisku: click, doubleClick, tripleClick, longClick, hold",
+  "notesTitle": "Notatki",
+  "notesDescription": "Wolny tekst o instalacji: sprzęt, okablowanie, adresy. Zapisuje się sam i trafia do kopii konfiguracji — nie wpisuj tu haseł.",
+  "notesPlaceholder": "Np. rozdzielnica RG1: przekaźnik Modbus adres 1, DMX D24 kanały 1–24…",
+  "notesLoadError": "Nie udało się wczytać notatki.",
+  "notesSaved": "Zapisano",
+  "notesPending": "Niezapisane zmiany…",
+  "notesSaving": "Zapisywanie…",
+  "notesSaveError": "Nie udało się zapisać — spróbuję przy następnej zmianie",
+  "notesCaret": "Wiersz {line}, kolumna {column}",
+  "notesLength": "{count} / {max} znaków",
+  "notesModified": "Zmieniono {date}",
+  "notesNeverModified": "Jeszcze nie zapisano"
 }

@@ -523,5 +523,17 @@
   "mqttTopicStatus": "online / offline — controller availability",
   "mqttTopicLightState": "light state (JSON: state, brightness, color_temp, color)",
   "mqttTopicLightSet": "light control from Home Assistant, same JSON",
-  "mqttTopicInput": "button gesture: click, doubleClick, tripleClick, longClick, hold"
+  "mqttTopicInput": "button gesture: click, doubleClick, tripleClick, longClick, hold",
+  "notesTitle": "Notes",
+  "notesDescription": "Free text about the installation: hardware, wiring, addresses. Saves by itself and goes into configuration backups — don't put passwords here.",
+  "notesPlaceholder": "E.g. panel RG1: Modbus relay address 1, DMX D24 channels 1–24…",
+  "notesLoadError": "Could not load the note.",
+  "notesSaved": "Saved",
+  "notesPending": "Unsaved changes…",
+  "notesSaving": "Saving…",
+  "notesSaveError": "Could not save — will retry on the next change",
+  "notesCaret": "Line {line}, column {column}",
+  "notesLength": "{count} / {max} characters",
+  "notesModified": "Changed {date}",
+  "notesNeverModified": "Not saved yet"
 }

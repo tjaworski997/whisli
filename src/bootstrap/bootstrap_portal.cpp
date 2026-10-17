@@ -17,6 +17,7 @@
 #include "whisli/net/mqtt_settings.hpp"
 #include "whisli/system/config_backup.hpp"
 #include "whisli/system/log.hpp"
+#include "whisli/system/notes.hpp"
 #include "whisli/version.generated.hpp"
 
 namespace whisli::bootstrap {
@@ -356,6 +357,34 @@ void configureBackupRoutes() {
     request.sendJson(200, "{\"message\":\"Konfiguracja wczytana." + String(note) + " Sterownik uruchamia się ponownie.\",\"secretsApplied\":" +
                           (result.secretsApplied ? "true" : "false") + "}");
     scheduleRestart(1000);
+  });
+
+  // Installation notes: plain text, saved by the panel as the user types.
+  on("/api/v1/notes", Method::Get, [](Request& request) {
+    const auto note = whisli::system::notes::load();
+    request.sendJson(200, "{\"text\":\"" + whisli::net::jsonEscape(note.text) + "\",\"modified\":" + String(note.modified) +
+                          ",\"maxLength\":" + String(whisli::system::notes::kMaxCharacters) + "}");
+  }, StateAccess::None);
+  // The text arrives as the raw body (UTF-8); X-Client-Time stamps it when the controller has no clock.
+  whisli::net::onStream("/api/v1/notes", Method::Post, [](Request& request) {
+    const size_t length = request.contentLength();
+    if (length > whisli::system::notes::kMaxBytes) { request.sendJson(413, "{\"message\":\"Notatka jest za długa.\"}"); return; }
+    std::unique_ptr<char, decltype(&free)> body(static_cast<char*>(ps_malloc(length + 1)), free);
+    if (!body) { request.sendJson(500, "{\"message\":\"Za mało pamięci.\"}"); return; }
+    size_t received = 0;
+    while (received < length) {
+      const int chunk = request.read(reinterpret_cast<uint8_t*>(body.get() + received), length - received);
+      if (chunk <= 0) { request.sendJson(400, "{\"message\":\"Notatka nie dotarła w całości.\"}"); return; }
+      received += chunk;
+    }
+    body.get()[length] = '\0';
+    const uint32_t clientTime = static_cast<uint32_t>(request.header("X-Client-Time").toInt());
+    const time_t now = time(nullptr);
+    if (!whisli::system::notes::save(String(body.get()), now > 1700000000 ? 0 : clientTime)) {
+      request.sendJson(500, "{\"message\":\"Nie udało się zapisać notatki.\"}");
+      return;
+    }
+    request.sendJson(200, "{\"modified\":" + String(whisli::system::notes::load().modified) + "}");
   });
 }
 
