@@ -50,7 +50,7 @@ export type SystemInfo = {
     wifiMac: string
   }
   network: { ethernetIp: string; wifiConnected: boolean; wifiIp: string; ssid: string }
-  storage: { firmwareKb: number; otaAvailableKb: number; nvsUsedEntries?: number; nvsFreeEntries?: number }
+  storage: { firmwareKb: number; otaAvailableKb: number; nvsUsedEntries?: number; nvsFreeEntries?: number; filesUsedKb?: number; filesTotalKb?: number }
 }
 
 export type DeviceLogEntry = { id: number; uptimeMs: number; level: "info" | "warning" | "error"; category: string; message: string }

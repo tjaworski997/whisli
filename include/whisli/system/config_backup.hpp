@@ -26,4 +26,8 @@ struct ImportResult {
 // still loads.
 ImportResult import(const char* json, size_t length, const String& passphrase = String());
 
+// Start-up, before the modules load: moves their configuration from the settings storage (NVS) to
+// files once (see ConfigStore). The network, MQTT and password settings stay in NVS.
+void moveConfigToFiles();
+
 }  // namespace whisli::system::backup

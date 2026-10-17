@@ -1,10 +1,12 @@
 #include "whisli/app/input_actions.hpp"
 
-#include <Preferences.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
-#include "esp_err.h"
-#include "nvs.h"
+#include <memory>
+#include <vector>
+
+#include "whisli/system/config_store.hpp"
 #include "whisli/app/state_events.hpp"
 #include "whisli/system/log.hpp"
 
@@ -57,104 +59,62 @@ bool parseLightId(const String& targetId, uint8_t& id) {
 }  // namespace
 
 InputActionManager::InputActionManager(ControllerIo& controller, ModbusRelayManager& relays, LightManager& lights, PresetManager& presets)
-    : controller_(controller), relays_(relays), lights_(lights), presets_(presets) {}
+    : controller_(controller), relays_(relays), lights_(lights), presets_(presets),
+      actions_(new InputAction[kMaxInputActions]()), events_(new InputEventBinding[kMaxInputEvents]()) {}
 
 void InputActionManager::begin() {
-  Preferences preferences;
-  preferences.begin(kPreferencesNamespace, true);
-  const size_t savedSize = preferences.getBytesLength(kConfigKey);
-  bool migrate = false;
-  if (savedSize == sizeof(PersistedActions)) {
-    if (preferences.getBytes(kConfigKey, &persistedBuffer_, sizeof(persistedBuffer_)) == sizeof(persistedBuffer_) &&
-        persistedBuffer_.version == 2 && persistedBuffer_.count <= kMaxInputActions &&
-        persistedBuffer_.eventCount <= kMaxInputEvents && persistedBuffer_.nextId != 0 &&
-        persistedBuffer_.nextEventId != 0) {
-      count_ = persistedBuffer_.count;
-      nextId_ = persistedBuffer_.nextId;
-      eventCount_ = persistedBuffer_.eventCount;
-      nextEventId_ = persistedBuffer_.nextEventId;
-      for (uint8_t index = 0; index < count_; ++index) {
-        if (persistedBuffer_.actions[index].id == 0 || persistedBuffer_.actions[index].inputId[0] == '\0') {
-          count_ = 0;
-          nextId_ = 1;
-          eventCount_ = 0;
-          nextEventId_ = 1;
-          break;
-        }
-        actions_[index] = persistedBuffer_.actions[index];
-      }
-      for (uint8_t index = 0; index < eventCount_; ++index) {
-        if (persistedBuffer_.events[index].id == 0 || persistedBuffer_.events[index].inputId[0] == '\0') {
-          eventCount_ = 0;
-          nextEventId_ = 1;
-          break;
-        }
-        events_[index] = persistedBuffer_.events[index];
-      }
-      migrate = true;
-    }
-  } else if (savedSize == sizeof(PersistedActionsV1)) {
-    if (preferences.getBytes(kConfigKey, &legacyBuffer_, sizeof(legacyBuffer_)) == sizeof(legacyBuffer_) &&
-        legacyBuffer_.version == 1 && legacyBuffer_.count <= kMaxInputActions && legacyBuffer_.nextId != 0) {
-      count_ = legacyBuffer_.count;
-      nextId_ = legacyBuffer_.nextId;
-      for (uint8_t index = 0; index < count_; ++index) {
-        if (legacyBuffer_.actions[index].id == 0 || legacyBuffer_.actions[index].inputId[0] == '\0') {
-          count_ = 0;
-          nextId_ = 1;
-          break;
-        }
-        actions_[index] = legacyBuffer_.actions[index];
-      }
-      migrate = true;
-    }
-  } else if (savedSize >= sizeof(PersistedActionsHeader) && savedSize <= sizeof(compactBuffer_)) {
-    PersistedActionsHeader header;
-    if (preferences.getBytes(kConfigKey, compactBuffer_, savedSize) == savedSize) {
-      memcpy(&header, compactBuffer_, sizeof(header));
-      const size_t expectedSize = sizeof(header) + sizeof(InputAction) * header.count +
-          sizeof(InputEventBinding) * header.eventCount;
-      if (header.version == 3 && header.count <= kMaxInputActions &&
-          header.eventCount <= kMaxInputEvents && header.nextId != 0 &&
-          header.nextEventId != 0 && savedSize == expectedSize) {
-        count_ = header.count;
-        nextId_ = header.nextId;
-        eventCount_ = header.eventCount;
-        nextEventId_ = header.nextEventId;
-        size_t offset = sizeof(header);
-        for (uint8_t index = 0; index < count_; ++index) {
-          memcpy(&actions_[index], compactBuffer_ + offset, sizeof(InputAction));
-          offset += sizeof(InputAction);
-          if (actions_[index].id == 0 || actions_[index].inputId[0] == '\0') {
-            count_ = 0; nextId_ = 1; eventCount_ = 0; nextEventId_ = 1; break;
-          }
-        }
-        for (uint8_t index = 0; index < eventCount_; ++index) {
-          memcpy(&events_[index], compactBuffer_ + offset, sizeof(InputEventBinding));
-          offset += sizeof(InputEventBinding);
-          if (events_[index].id == 0 || events_[index].inputId[0] == '\0') {
-            eventCount_ = 0; nextEventId_ = 1; break;
-          }
-        }
-      }
-    }
-  }
-  preferences.end();
+  whisli::system::ConfigStore store;
+  store.begin(kPreferencesNamespace, true);
+  const size_t savedSize = store.getBytesLength(kConfigKey);
+  if (savedSize < sizeof(PersistedHeaderV3)) return;
+  std::unique_ptr<uint8_t[]> saved(new uint8_t[savedSize]);
+  if (store.getBytes(kConfigKey, saved.get(), savedSize) != savedSize) return;
 
-  if (migrate) migrateLegacyConfiguration();
+  // Header of either version, then the same records.
+  size_t offset = 0;
+  uint16_t count = 0, eventCount = 0, nextId = 0, nextEventId = 0;
+  if (saved[0] == 3) {
+    PersistedHeaderV3 header;
+    memcpy(&header, saved.get(), sizeof(header));
+    count = header.count; eventCount = header.eventCount; nextId = header.nextId; nextEventId = header.nextEventId;
+    offset = sizeof(header);
+  } else if (saved[0] == 4 && savedSize >= sizeof(PersistedHeader)) {
+    PersistedHeader header;
+    memcpy(&header, saved.get(), sizeof(header));
+    count = header.count; eventCount = header.eventCount; nextId = header.nextId; nextEventId = header.nextEventId;
+    offset = sizeof(header);
+  } else {
+    whisli::system::write(whisli::system::LogLevel::Error, "actions", "Unknown action configuration format: not loaded");
+    return;
+  }
+  if (count > kMaxInputActions || eventCount > kMaxInputEvents || nextId == 0 || nextEventId == 0 ||
+      savedSize != offset + sizeof(InputAction) * count + sizeof(InputEventBinding) * eventCount) {
+    whisli::system::write(whisli::system::LogLevel::Error, "actions", "Action configuration is damaged: not loaded");
+    return;
+  }
+  for (uint16_t index = 0; index < count; ++index, offset += sizeof(InputAction)) {
+    memcpy(&actions_[index], saved.get() + offset, sizeof(InputAction));
+    if (actions_[index].id == 0 || actions_[index].inputId[0] == '\0') return;
+  }
+  for (uint16_t index = 0; index < eventCount; ++index, offset += sizeof(InputEventBinding)) {
+    memcpy(&events_[index], saved.get() + offset, sizeof(InputEventBinding));
+    if (events_[index].id == 0 || events_[index].inputId[0] == '\0') return;
+  }
+  count_ = count; eventCount_ = eventCount; nextId_ = nextId; nextEventId_ = nextEventId;
+  if (saved[0] == 3) save();  // rewritten in the current format
 }
 
-uint8_t InputActionManager::count() const { return count_; }
+uint16_t InputActionManager::count() const { return count_; }
 
-bool InputActionManager::get(uint8_t index, InputAction& output) const {
+bool InputActionManager::get(uint16_t index, InputAction& output) const {
   if (index >= count_) return false;
   output = actions_[index];
   return true;
 }
 
-uint8_t InputActionManager::eventCount() const { return eventCount_; }
+uint16_t InputActionManager::eventCount() const { return eventCount_; }
 
-bool InputActionManager::getEvent(uint8_t index, InputEventBinding& output) const {
+bool InputActionManager::getEvent(uint16_t index, InputEventBinding& output) const {
   if (index >= eventCount_) return false;
   output = events_[index];
   return true;
@@ -179,33 +139,32 @@ bool InputActionManager::addEvent(const String& inputId, const String& triggerVa
 }
 
 bool InputActionManager::removeEvent(uint16_t id) {
-  uint8_t index = 0;
+  uint16_t index = 0;
   while (index < eventCount_ && events_[index].id != id) ++index;
   if (index >= eventCount_) return false;
 
   const InputEventBinding removed = events_[index];
-  static InputAction previousActions[kMaxInputActions];
-  memcpy(previousActions, actions_, sizeof(actions_));
-  const uint8_t previousActionCount = count_;
+  const std::vector<InputAction> previousActions(actions_, actions_ + count_);
+  const uint16_t previousActionCount = count_;
 
-  uint8_t actionWriteIndex = 0;
-  for (uint8_t actionReadIndex = 0; actionReadIndex < count_; ++actionReadIndex) {
+  uint16_t actionWriteIndex = 0;
+  for (uint16_t actionReadIndex = 0; actionReadIndex < count_; ++actionReadIndex) {
     const InputAction& action = actions_[actionReadIndex];
     if (strcmp(action.inputId, removed.inputId) == 0 && action.trigger == removed.trigger) continue;
     if (actionWriteIndex != actionReadIndex) actions_[actionWriteIndex] = action;
     ++actionWriteIndex;
   }
   count_ = actionWriteIndex;
-  for (uint8_t actionIndex = count_; actionIndex < previousActionCount; ++actionIndex)
+  for (uint16_t actionIndex = count_; actionIndex < previousActionCount; ++actionIndex)
     actions_[actionIndex] = InputAction{};
 
-  for (uint8_t move = index + 1; move < eventCount_; ++move) events_[move - 1] = events_[move];
+  for (uint16_t move = index + 1; move < eventCount_; ++move) events_[move - 1] = events_[move];
   events_[--eventCount_] = InputEventBinding{};
   if (save()) return true;
 
-  memcpy(actions_, previousActions, sizeof(actions_));
+  std::copy(previousActions.begin(), previousActions.end(), actions_);
   count_ = previousActionCount;
-  for (uint8_t move = eventCount_; move > index; --move) events_[move] = events_[move - 1];
+  for (uint16_t move = eventCount_; move > index; --move) events_[move] = events_[move - 1];
   events_[index] = removed;
   ++eventCount_;
   return false;
@@ -237,7 +196,7 @@ bool InputActionManager::add(const String& inputId, const String& triggerValue,
 }
 
 bool InputActionManager::setEnabled(uint16_t id, bool enabled) {
-  for (uint8_t index = 0; index < count_; ++index) {
+  for (uint16_t index = 0; index < count_; ++index) {
     if (actions_[index].id != id) continue;
     const bool previous = actions_[index].enabled;
     actions_[index].enabled = enabled;
@@ -252,7 +211,7 @@ bool InputActionManager::update(uint16_t id, const String& commandValue, const S
   ActionCommand command;
   if (!parseCommand(commandValue, command) ||
       (!targetId.isEmpty() && !targetAvailable(targetId))) return false;
-  for (uint8_t index = 0; index < count_; ++index) {
+  for (uint16_t index = 0; index < count_; ++index) {
     if (actions_[index].id != id) continue;
     const InputAction previous = actions_[index];
     const uint8_t newValue = valueFor(command, value, previous.command == command ? previous.value : 0);
@@ -290,7 +249,7 @@ bool InputActionManager::fits(ActionCommand command, uint8_t value, const String
 
 void InputActionManager::forgetPreset(uint8_t presetId) {
   bool changed = false;
-  for (uint8_t index = 0; index < count_; ++index) {
+  for (uint16_t index = 0; index < count_; ++index) {
     if (actions_[index].command != ActionCommand::SetPreset || actions_[index].value != presetId) continue;
     actions_[index].value = 0;
     changed = true;
@@ -299,14 +258,14 @@ void InputActionManager::forgetPreset(uint8_t presetId) {
 }
 
 bool InputActionManager::remove(uint16_t id) {
-  for (uint8_t index = 0; index < count_; ++index) {
+  for (uint16_t index = 0; index < count_; ++index) {
     if (actions_[index].id != id) continue;
     const InputAction removed = actions_[index];
-    for (uint8_t move = index + 1; move < count_; ++move) actions_[move - 1] = actions_[move];
+    for (uint16_t move = index + 1; move < count_; ++move) actions_[move - 1] = actions_[move];
     --count_;
     actions_[count_] = InputAction{};
     if (save()) return true;
-    for (uint8_t move = count_; move > index; --move) actions_[move] = actions_[move - 1];
+    for (uint16_t move = count_; move > index; --move) actions_[move] = actions_[move - 1];
     actions_[index] = removed;
     ++count_;
     return false;
@@ -315,7 +274,7 @@ bool InputActionManager::remove(uint16_t id) {
 }
 
 bool InputActionManager::test(uint16_t id) {
-  for (uint8_t index = 0; index < count_; ++index) {
+  for (uint16_t index = 0; index < count_; ++index) {
     if (actions_[index].id != id) continue;
     const InputAction& action = actions_[index];
     if (!execute(action)) return false;
@@ -349,12 +308,12 @@ void InputActionManager::handleInputEvent(uint8_t input, ButtonEvent event) {
 
   // A long click is the same press as a hold; when the button has hold actions, the hold wins.
   if (trigger == ActionTrigger::LongClick) {
-    for (uint8_t index = 0; index < count_; ++index) {
+    for (uint16_t index = 0; index < count_; ++index) {
       const InputAction& action = actions_[index];
       if (action.enabled && action.trigger == ActionTrigger::Hold && inputId == action.inputId && action.command != ActionCommand::None) return;
     }
   }
-  for (uint8_t index = 0; index < count_; ++index) {
+  for (uint16_t index = 0; index < count_; ++index) {
     const InputAction action = actions_[index];
     if (action.enabled && action.trigger == trigger && inputId == action.inputId &&
         action.command != ActionCommand::None && action.targetId[0] != '\0') {
@@ -417,55 +376,27 @@ const char* InputActionManager::commandName(ActionCommand command) {
 }
 
 bool InputActionManager::save() {
-  PersistedActionsHeader header;
+  PersistedHeader header;
   header.count = count_;
   header.nextId = nextId_;
   header.eventCount = eventCount_;
   header.nextEventId = nextEventId_;
-  size_t offset = sizeof(header);
-  memcpy(compactBuffer_, &header, sizeof(header));
-  for (uint8_t index = 0; index < count_; ++index) {
-    memcpy(compactBuffer_ + offset, &actions_[index], sizeof(InputAction));
-    offset += sizeof(InputAction);
-  }
-  for (uint8_t index = 0; index < eventCount_; ++index) {
-    memcpy(compactBuffer_ + offset, &events_[index], sizeof(InputEventBinding));
-    offset += sizeof(InputEventBinding);
-  }
-
-  nvs_handle_t handle;
-  esp_err_t error = nvs_open(kPreferencesNamespace, NVS_READWRITE, &handle);
-  if (error == ESP_OK) {
-    error = nvs_set_blob(handle, kConfigKey, compactBuffer_, offset);
-    if (error == ESP_OK) error = nvs_commit(handle);
-    nvs_close(handle);
-  }
-  if (error != ESP_OK) {
-    char message[96];
-    snprintf(message, sizeof(message), "Could not save action configuration to NVS: %s", esp_err_to_name(error));
-    whisli::system::write(whisli::system::LogLevel::Error, "actions", message);
+  const size_t size = sizeof(header) + sizeof(InputAction) * count_ + sizeof(InputEventBinding) * eventCount_;
+  std::unique_ptr<uint8_t[]> buffer(new uint8_t[size]);
+  memcpy(buffer.get(), &header, sizeof(header));
+  memcpy(buffer.get() + sizeof(header), actions_, sizeof(InputAction) * count_);
+  memcpy(buffer.get() + sizeof(header) + sizeof(InputAction) * count_, events_, sizeof(InputEventBinding) * eventCount_);
+  whisli::system::ConfigStore store;
+  if (!store.begin(kPreferencesNamespace) || store.putBytes(kConfigKey, buffer.get(), size) != size) {
+    whisli::system::write(whisli::system::LogLevel::Error, "actions", "Could not save the action configuration");
     return false;
   }
   notifyChange(kTopicActions);
   return true;
 }
 
-void InputActionManager::migrateLegacyConfiguration() {
-  for (uint8_t index = 0; index < count_; ++index) {
-    const InputAction& action = actions_[index];
-    if (eventExists(action.inputId, action.trigger) || eventCount_ >= kMaxInputEvents) continue;
-    InputEventBinding& event = events_[eventCount_++];
-    event.id = nextEventId_++;
-    strlcpy(event.inputId, action.inputId, sizeof(event.inputId));
-    event.trigger = action.trigger;
-  }
-  if (save()) {
-    whisli::system::write(whisli::system::LogLevel::Info, "actions", "Legacy action configuration migrated to current format");
-  }
-}
-
 bool InputActionManager::eventExists(const String& inputId, ActionTrigger trigger) const {
-  for (uint8_t index = 0; index < eventCount_; ++index) {
+  for (uint16_t index = 0; index < eventCount_; ++index) {
     if (inputId == events_[index].inputId && trigger == events_[index].trigger) return true;
   }
   return false;

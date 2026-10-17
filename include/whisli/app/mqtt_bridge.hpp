@@ -48,7 +48,9 @@ class MqttBridge {
   void applyCommand(const Command& command);
   void publishAll();
   void publishStates(bool force);
-  void publishDiscovery(bool force);
+  bool publishDiscovery();
+  uint16_t budget() const;
+  static constexpr uint16_t kMessagesPerRound = 16;
   bool publish(const String& topic, const String& payload, bool retain);
   String deviceJson() const;
   String lightStateJson(const LightSnapshot& light) const;
@@ -69,9 +71,12 @@ class MqttBridge {
   volatile bool resync_ = false;  // just connected, or Home Assistant restarted: send everything again
   uint32_t lastStatesAt_ = 0;
   uint32_t lastDiscoveryCheckAt_ = 0;
+  bool discoveryPending_ = false;  // a round ran out of room: continue on the next poll
 
-  String lightStates_[kMaxLights];        // last published state per light slot
-  String lightDiscovery_[kMaxLights];     // last published discovery config per light slot
+  // What was published last, per light slot, as hashes (0 = nothing): full texts would take tens of
+  // kilobytes of internal RAM with many lights.
+  uint32_t lightStates_[kMaxLights] = {};
+  uint32_t lightDiscovery_[kMaxLights] = {};
   String inputDiscovery_[kControllerInputCount];
 };
 

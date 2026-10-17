@@ -4,6 +4,7 @@
 #include <WiFi.h>
 
 #include <cmath>
+#include <vector>
 
 #include "whisli/net/json.hpp"
 #include "whisli/system/log.hpp"
@@ -20,6 +21,13 @@ namespace mqtt = whisli::net::mqtt;
 constexpr uint32_t kStatesEveryMs = 200;      // lights changed by buttons show up in HA this quickly
 constexpr uint32_t kDiscoveryEveryMs = 3000;  // renamed or added lights and buttons
 constexpr uint16_t kWarmKelvin = 2700;
+
+// FNV-1a: what was published, without keeping the text. Never 0, which means "nothing sent".
+uint32_t textHash(const String& text) {
+  uint32_t hash = 2166136261u;
+  for (const char character : text) hash = (hash ^ static_cast<uint8_t>(character)) * 16777619u;
+  return hash ? hash : 1;
+}
 constexpr uint16_t kCoolKelvin = 6500;
 
 struct Gesture { const char* trigger; const char* type; };
@@ -67,7 +75,7 @@ bool isDmx(LightKind kind) { return kind == LightKind::DmxDimmable || kind == Li
 void MqttBridge::poll() {
   if (!commands_) {
     commands_ = xQueueCreate(8, sizeof(Command));
-    outgoing_ = xQueueCreate(160, sizeof(Outgoing*));  // a full discovery round fits
+    outgoing_ = xQueueCreate(64, sizeof(Outgoing*));  // rounds queue at most kMessagesPerRound
     clientLock_ = xSemaphoreCreateMutex();
     settingsLock_ = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(workerTask, "whisli-mqtt", 4096, this, whisli::system::kMqttTaskPriority, nullptr, 0);
@@ -79,8 +87,12 @@ void MqttBridge::poll() {
   if (client_) while (xQueueReceive(commands_, &command, 0) == pdTRUE) applyCommand(command);
   if (client_ && connected_) {
     const uint32_t now = millis();
-    if (resync_) { resync_ = false; publishAll(); }
-    else if (settings_.discovery && now - lastDiscoveryCheckAt_ >= kDiscoveryEveryMs) { lastDiscoveryCheckAt_ = now; publishDiscovery(false); }
+    if (resync_) { resync_ = false; publishAll(); discoveryPending_ = true; }
+    else if (settings_.discovery && (discoveryPending_ || now - lastDiscoveryCheckAt_ >= kDiscoveryEveryMs)) {
+      // Configs first; a backlog continues on the next poll instead of waiting the full interval.
+      lastDiscoveryCheckAt_ = now;
+      discoveryPending_ = !publishDiscovery();
+    }
     else if (now - lastStatesAt_ >= kStatesEveryMs) { lastStatesAt_ = now; publishStates(false); }
   }
   xSemaphoreGive(settingsLock_);
@@ -164,8 +176,8 @@ void MqttBridge::stop() {
   xSemaphoreGive(clientLock_);
   Outgoing* stale = nullptr;
   while (xQueueReceive(outgoing_, &stale, 0) == pdTRUE) delete stale;
-  for (auto& state : lightStates_) state = String();
-  for (auto& config : lightDiscovery_) config = String();
+  memset(lightStates_, 0, sizeof(lightStates_));
+  memset(lightDiscovery_, 0, sizeof(lightDiscovery_));
   for (auto& config : inputDiscovery_) config = String();
 }
 
@@ -267,12 +279,13 @@ bool MqttBridge::publish(const String& topic, const String& payload, bool retain
   return false;
 }
 
+// Everything again (connected, or Home Assistant restarted): forgetting what was sent makes the
+// next rounds send it all, a portion at a time.
 void MqttBridge::publishAll() {
   publish(availability_, "online", true);
-  for (auto& config : lightDiscovery_) config = String();
-  for (auto& config : inputDiscovery_) config = String();
-  if (settings_.discovery) publishDiscovery(true);
-  publishStates(true);
+  memset(lightStates_, 0, sizeof(lightStates_));
+  memset(lightDiscovery_, 0, sizeof(lightDiscovery_));
+  for (auto& config : inputDiscovery_) config = String("\x01");
 }
 
 String MqttBridge::deviceJson() const {
@@ -299,35 +312,41 @@ String MqttBridge::lightStateJson(const LightSnapshot& light) const {
   return json + "}";
 }
 
+// How many messages one round may queue: keeps memory flat with many lights. What does not fit
+// stays different from what was sent and goes out in the next rounds.
+uint16_t MqttBridge::budget() const {
+  const UBaseType_t spaces = uxQueueSpacesAvailable(outgoing_);
+  return spaces > kMessagesPerRound ? kMessagesPerRound : static_cast<uint16_t>(spaces);
+}
+
 void MqttBridge::publishStates(bool force) {
   struct Pending { String topic; String payload; uint8_t slot; };
-  Pending pending[kMaxLights];
-  uint8_t count = 0;
+  std::vector<Pending> pending;
+  const uint16_t room = budget();
   {
     // Copied under the lock, published after it.
     whisli::system::StateLock lock;
-    for (uint8_t index = 0; index < lights_.count() && count < kMaxLights; ++index) {
+    for (uint8_t index = 0; index < lights_.count() && pending.size() < room; ++index) {
       LightSnapshot light;
       if (!lights_.get(index, light) || light.kind == LightKind::None || light.id < 1 || light.id > kMaxLights) continue;
       const String json = lightStateJson(light);
-      String& last = lightStates_[light.id - 1];
-      if (!force && json == last) continue;
-      last = json;
-      pending[count++] = {settings_.baseTopic + "/light/" + light.id + "/state", json, static_cast<uint8_t>(light.id - 1)};
+      uint32_t& last = lightStates_[light.id - 1];
+      const uint32_t hash = textHash(json);
+      if (!force && hash == last) continue;
+      last = hash;
+      pending.push_back({settings_.baseTopic + "/light/" + light.id + "/state", json, static_cast<uint8_t>(light.id - 1)});
     }
   }
   // Not queued: forget it was sent, so the next round tries again.
-  for (uint8_t index = 0; index < count; ++index) {
-    if (!publish(pending[index].topic, pending[index].payload, true)) lightStates_[pending[index].slot] = String();
-  }
+  for (const Pending& item : pending) if (!publish(item.topic, item.payload, true)) lightStates_[item.slot] = 0;
 }
 
 // Configs are compared with what was sent last: a renamed light updates, a removed one is withdrawn
-// (an empty retained config deletes it in Home Assistant).
-void MqttBridge::publishDiscovery(bool force) {
-  struct Pending { String topic; String payload; };
-  Pending pending[kMaxLights + kControllerInputCount * 5 + kMaxLights];
-  uint16_t count = 0;
+// (an empty retained config deletes it in Home Assistant). True when everything is up to date.
+bool MqttBridge::publishDiscovery() {
+  struct Pending { String topic; String payload; int lightSlot; int input; };
+  std::vector<Pending> pending;
+  const uint16_t room = budget();
   const String device = deviceJson();
   {
     whisli::system::StateLock lock;
@@ -336,6 +355,7 @@ void MqttBridge::publishDiscovery(bool force) {
       LightSnapshot light;
       if (!lights_.get(index, light) || light.kind == LightKind::None || light.id < 1 || light.id > kMaxLights) continue;
       present[light.id - 1] = true;
+      if (pending.size() >= room) continue;
       const String id = String(light.id);
       String modes;
       switch (light.kind) {
@@ -350,16 +370,16 @@ void MqttBridge::publishDiscovery(bool force) {
                             settings_.baseTopic + "/light/" + id + "/state\",\"availability_topic\":\"" + availability_ +
                             "\",\"brightness\":" + (isDmx(light.kind) ? "true" : "false") + ",\"supported_color_modes\":" + modes +
                             ",\"device\":" + device + "}";
-      String& last = lightDiscovery_[light.id - 1];
-      if (force || config != last) {
-        last = config;
-        pending[count++] = {settings_.discoveryPrefix + "/light/" + nodeId_ + "/light_" + id + "/config", config};
-      }
+      uint32_t& last = lightDiscovery_[light.id - 1];
+      const uint32_t hash = textHash(config);
+      if (hash == last) continue;
+      last = hash;
+      pending.push_back({settings_.discoveryPrefix + "/light/" + nodeId_ + "/light_" + id + "/config", config, light.id - 1, -1});
     }
-    for (uint8_t slot = 0; slot < kMaxLights; ++slot) {
-      if (present[slot] || lightDiscovery_[slot].isEmpty()) continue;
-      lightDiscovery_[slot] = String();
-      pending[count++] = {settings_.discoveryPrefix + "/light/" + nodeId_ + "/light_" + String(slot + 1) + "/config", String()};
+    for (uint8_t slot = 0; slot < kMaxLights && pending.size() < room; ++slot) {
+      if (present[slot] || lightDiscovery_[slot] == 0) continue;
+      lightDiscovery_[slot] = 0;
+      pending.push_back({settings_.discoveryPrefix + "/light/" + nodeId_ + "/light_" + String(slot + 1) + "/config", String(), -1, -1});
     }
   }
   // Buttons: one device trigger per gesture of every used input, named after the input.
@@ -368,19 +388,25 @@ void MqttBridge::publishDiscovery(bool force) {
     String name = controller.inputNames[input];
     if (name.isEmpty()) name = "DI" + String(input < 9 ? "0" : "") + String(input + 1);
     const String signature = controller.inputUsed[input] ? name : String();
-    if (!force && signature == inputDiscovery_[input]) continue;
-    const bool wasPublished = !inputDiscovery_[input].isEmpty();
+    if (signature == inputDiscovery_[input]) continue;
+    const size_t gestures = sizeof(kGestures) / sizeof(kGestures[0]);
+    if (pending.size() + gestures > room) break;
     inputDiscovery_[input] = signature;
-    if (signature.isEmpty() && !wasPublished && !force) continue;
     for (const Gesture& gesture : kGestures) {
       const String topic = settings_.discoveryPrefix + "/device_automation/" + nodeId_ + "/input_" + String(input + 1) + "_" + gesture.trigger + "/config";
       const String config = signature.isEmpty() ? String() :
           "{\"automation_type\":\"trigger\",\"topic\":\"" + settings_.baseTopic + "/input/" + String(input + 1) + "/action\",\"type\":\"" +
           gesture.type + "\",\"subtype\":\"" + jsonEscape(name) + "\",\"payload\":\"" + gesture.trigger + "\",\"device\":" + device + "}";
-      pending[count++] = {topic, config};
+      pending.push_back({topic, config, -1, input});
     }
   }
-  for (uint16_t index = 0; index < count; ++index) publish(pending[index].topic, pending[index].payload, true);
+  // Not queued: forget it was sent, so it goes again.
+  for (const Pending& item : pending) {
+    if (publish(item.topic, item.payload, true)) continue;
+    if (item.lightSlot >= 0) lightDiscovery_[item.lightSlot] = 0;
+    if (item.input >= 0) inputDiscovery_[item.input] = String("\x01");
+  }
+  return pending.size() < room;
 }
 
 void MqttBridge::publishGesture(uint8_t input, const char* trigger) {

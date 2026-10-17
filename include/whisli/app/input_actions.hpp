@@ -10,8 +10,10 @@
 
 namespace whisli::app {
 
-constexpr uint8_t kMaxInputActions = 64;
-constexpr uint8_t kMaxInputEvents = kControllerInputCount * 5;
+// Generous on purpose: the configuration lives in files and these tables in PSRAM, so the limits
+// only guard against runaway growth (e.g. 128 buttons with every gesture used).
+constexpr uint16_t kMaxInputActions = 1024;
+constexpr uint16_t kMaxInputEvents = 640;
 
 enum class ActionTrigger : uint8_t { Click, DoubleClick, TripleClick, LongClick, Hold };
 // Keep the values: they are stored. The dimming ones work on DMX lights only.
@@ -47,10 +49,10 @@ class InputActionManager {
   InputActionManager(ControllerIo& controller, ModbusRelayManager& relays, LightManager& lights, PresetManager& presets);
 
   void begin();
-  uint8_t count() const;
-  bool get(uint8_t index, InputAction& output) const;
-  uint8_t eventCount() const;
-  bool getEvent(uint8_t index, InputEventBinding& output) const;
+  uint16_t count() const;
+  bool get(uint16_t index, InputAction& output) const;
+  uint16_t eventCount() const;
+  bool getEvent(uint16_t index, InputEventBinding& output) const;
   bool addEvent(const String& inputId, const String& trigger);
   bool removeEvent(uint16_t id);
   bool add(const String& inputId, const String& trigger, const String& command, const String& targetId, bool enabled = true, int value = -1);
@@ -70,33 +72,24 @@ class InputActionManager {
   static const char* commandName(ActionCommand command);
 
  private:
-  struct PersistedActions {
-    uint8_t version = 2;
-    uint8_t count = 0;
-    uint16_t nextId = 1;
-    uint8_t eventCount = 0;
-    uint16_t nextEventId = 1;
-    InputAction actions[kMaxInputActions] = {};
-    InputEventBinding events[kMaxInputEvents] = {};
-  };
-
-  struct PersistedActionsV1 {
-    uint8_t version = 1;
-    uint8_t count = 0;
-    uint16_t nextId = 1;
-    InputAction actions[kMaxInputActions] = {};
-  };
-
-  struct PersistedActionsHeader {
+  // Stored as [header][actions][events]. Version 3 (settings storage, up to 255 of each) is read to
+  // migrate; version 4 has 16-bit counts.
+  struct PersistedHeaderV3 {
     uint8_t version = 3;
     uint8_t count = 0;
     uint16_t nextId = 1;
     uint8_t eventCount = 0;
     uint16_t nextEventId = 1;
   };
+  struct PersistedHeader {
+    uint8_t version = 4;
+    uint16_t count = 0;
+    uint16_t nextId = 1;
+    uint16_t eventCount = 0;
+    uint16_t nextEventId = 1;
+  };
 
   bool save();
-  void migrateLegacyConfiguration();
   bool eventExists(const String& inputId, ActionTrigger trigger) const;
   bool inputAvailable(const String& inputId) const;
   bool targetAvailable(const String& targetId) const;
@@ -110,16 +103,13 @@ class InputActionManager {
   ModbusRelayManager& relays_;
   LightManager& lights_;
   PresetManager& presets_;
-  InputAction actions_[kMaxInputActions] = {};
-  uint8_t count_ = 0;
+  // Tens of kilobytes: allocated, so they land in PSRAM rather than the scarce internal RAM.
+  InputAction* actions_;
+  uint16_t count_ = 0;
   uint16_t nextId_ = 1;
-  InputEventBinding events_[kMaxInputEvents] = {};
-  uint8_t eventCount_ = 0;
+  InputEventBinding* events_;
+  uint16_t eventCount_ = 0;
   uint16_t nextEventId_ = 1;
-  PersistedActions persistedBuffer_ = {};
-  PersistedActionsV1 legacyBuffer_ = {};
-  uint8_t compactBuffer_[sizeof(PersistedActionsHeader) + sizeof(InputAction) * kMaxInputActions +
-                         sizeof(InputEventBinding) * kMaxInputEvents] = {};
 };
 
 }  // namespace whisli::app

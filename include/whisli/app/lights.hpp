@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Arduino.h>
-#include <Preferences.h>
 
 #include "whisli/app/controller_io.hpp"
 #include "whisli/app/dmx_output.hpp"
@@ -9,7 +8,8 @@
 
 namespace whisli::app {
 
-constexpr uint8_t kMaxLights = 32;
+// Ids are 1…kMaxLights (the slot + 1). 128 RGBW lights already fill a DMX universe (512 channels).
+constexpr uint8_t kMaxLights = 128;
 
 // Keep 0/1 stable: early firmware already persisted these values.
 enum class LightKind : uint8_t { RelaySwitch = 0, DmxDimmable = 1, None = 2, DmxCct = 3, DmxRgbw = 4, DmxRgb = 5 };
@@ -121,16 +121,8 @@ class LightManager {
   ControllerIo& controller_;
   ModbusRelayManager& relays_;
   DmxOutput& dmx_;
-  LightSnapshot lights_[kMaxLights] = {};
-  uint8_t colorTemperatures_[kMaxLights] = {};
-  RgbwColor colors_[kMaxLights] = {};
-  DimmingProfile dimming_[kMaxLights] = {};
-  LightBehavior defaults_;
-  LightBehaviorOverride overrides_[kMaxLights] = {};
-
   // Fades: the level being output now moves from `fadeFrom_` to the light's target level.
   struct Fade { uint8_t from = 0; uint8_t current = 0; uint32_t startedAt = 0; uint16_t durationMs = 0; bool active = false; };
-  Fade fades_[kMaxLights] = {};
   struct Chaos {
     bool active = false;
     uint8_t level[kMaxLights] = {};
@@ -138,8 +130,29 @@ class LightManager {
     RgbwColor color[kMaxLights] = {};
     uint8_t lastOn[kMaxLights] = {};
     uint32_t nextAt[kMaxLights] = {};
-  } chaos_;
-  uint8_t lastOn_[kMaxLights] = {};   // last non-zero level, for "on returns to last brightness"
+  };
+  // Per-light tables (~20 KB): allocated, so they land in PSRAM rather than the scarce internal RAM.
+  // The members below are references into it and read like plain arrays.
+  struct Tables {
+    LightSnapshot lights[kMaxLights] = {};
+    uint8_t colorTemperatures[kMaxLights] = {};
+    RgbwColor colors[kMaxLights] = {};
+    DimmingProfile dimming[kMaxLights] = {};
+    LightBehaviorOverride overrides[kMaxLights] = {};
+    Fade fades[kMaxLights] = {};
+    Chaos chaos;
+    uint8_t lastOn[kMaxLights] = {};
+  };
+  Tables* tables_ = new Tables();
+  LightSnapshot (&lights_)[kMaxLights] = tables_->lights;
+  uint8_t (&colorTemperatures_)[kMaxLights] = tables_->colorTemperatures;
+  RgbwColor (&colors_)[kMaxLights] = tables_->colors;
+  DimmingProfile (&dimming_)[kMaxLights] = tables_->dimming;
+  LightBehavior defaults_;
+  LightBehaviorOverride (&overrides_)[kMaxLights] = tables_->overrides;
+  Fade (&fades_)[kMaxLights] = tables_->fades;
+  Chaos& chaos_ = tables_->chaos;
+  uint8_t (&lastOn_)[kMaxLights] = tables_->lastOn;  // last non-zero level, for "on returns to last brightness"
   bool stateDirty_ = false;
   bool migrateDefinitions_ = false;  // loaded from the old full layout: save compactly
   uint32_t stateChangedAt_ = 0;

@@ -477,7 +477,7 @@
   "homeZoneOn": "{on} z {total}",
   "homeZoneOff": "Wyłącz",
   "homeMemory": "Pamięć",
-  "homeMemoryValue": "RAM {heap} KB · NVS {nvs}",
+  "homeMemoryValue": "RAM {heap} KB wolne · konfiguracja {files} KB",
   "homeWarnings": "Ostrzeżenia: {count}",
   "homeNoWarnings": "Bez ostrzeżeń",
   "homeAllOffTitle": "Wyłączyć wszystkie światła?",

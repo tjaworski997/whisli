@@ -1,6 +1,6 @@
 #include "whisli/app/presets.hpp"
 
-#include <Preferences.h>
+#include "whisli/system/config_store.hpp"
 
 #include "whisli/app/state_events.hpp"
 
@@ -20,7 +20,7 @@ String clean(const String& name) {
 }  // namespace
 
 void PresetManager::begin() {
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin(kNamespace, true);
   const bool stored = preferences.isKey("count");
   count_ = preferences.getUChar("count", 0);
@@ -40,7 +40,7 @@ void PresetManager::begin() {
 }
 
 bool PresetManager::save() {
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin(kNamespace, false);
   bool ok = preferences.putUChar("count", count_) == 1;
   if (count_) ok = ok && preferences.putBytes("presets", presets_, sizeof(LightPreset) * count_) == sizeof(LightPreset) * count_;

@@ -129,7 +129,7 @@ export function HomePage({ devices, onOpen }: { devices: Device[]; onOpen: (rout
       className="whisli-line group mt-10 grid w-full gap-x-8 gap-y-3 rounded-xl border p-4 text-left transition-colors hover:border-[var(--ink)] sm:grid-cols-2 lg:grid-cols-4">
       <Datum label={t("firmwareVersion")} value={system?.firmware.version ?? "–"} />
       <Datum label={t("systemUptime")} value={system ? formatUptime(system.uptimeSeconds) : "–"} />
-      <Datum label={t("homeMemory")} value={system ? t("homeMemoryValue", { heap: system.hardware.freeHeapKb, nvs: system.storage.nvsFreeEntries ?? "–" }) : "–"} />
+      <Datum label={t("homeMemory")} value={system ? t("homeMemoryValue", { heap: system.hardware.freeHeapKb, files: system.storage.filesTotalKb ? `${system.storage.filesUsedKb} / ${system.storage.filesTotalKb}` : "–" }) : "–"} />
       <Datum label={t("systemLogs")} value={t(warnings ? "homeWarnings" : "homeNoWarnings", { count: warnings })} alert={warnings > 0} />
     </button>
 

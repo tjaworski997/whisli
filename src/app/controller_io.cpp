@@ -1,6 +1,6 @@
 #include "whisli/app/controller_io.hpp"
 
-#include <Preferences.h>
+#include "whisli/system/config_store.hpp"
 #include <Wire.h>
 #include <cstring>
 
@@ -46,7 +46,7 @@ bool ControllerIo::begin() {
   lock_ = xSemaphoreCreateMutex();
   if (!lock_) return false;
 
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin("whisli-board", true);
   PersistedController saved;
   const size_t savedSize = preferences.getBytesLength("config");
@@ -126,7 +126,7 @@ bool ControllerIo::save() {
     if (device_.inputUsed[index]) saved.inputUsed |= static_cast<uint8_t>(1U << index);
     strlcpy(saved.inputNames[index], device_.inputNames[index], sizeof(saved.inputNames[index]));
   }
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin("whisli-board", false);
   const size_t written = preferences.putBytes("config", &saved, sizeof(saved));
   preferences.end();

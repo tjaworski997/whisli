@@ -4,8 +4,8 @@
 
 namespace whisli::app {
 
-constexpr uint8_t kMaxZones = 32;
-constexpr uint8_t kMaxZoneAssignments = 64;
+constexpr uint8_t kMaxZones = 64;
+constexpr uint16_t kMaxZoneAssignments = 1024;  // lights, buttons and anything else that gets a zone
 
 // A named part of the house ("Parter – salon"). Flat on purpose: no floors or nesting.
 struct Zone { uint8_t id = 0; char name[33] = {}; };
@@ -27,9 +27,9 @@ class ZoneManager {
 
   uint8_t zoneOf(const String& target) const;  // 0 = no zone
   bool assign(const String& target, uint8_t zone);  // zone 0 removes the assignment
-  uint8_t assignmentCount() const { return assignmentCount_; }
-  const char* assignmentTarget(uint8_t index) const { return assignments_[index].target; }
-  uint8_t assignmentZone(uint8_t index) const { return assignments_[index].zone; }
+  uint16_t assignmentCount() const { return assignmentCount_; }
+  const char* assignmentTarget(uint16_t index) const { return assignments_[index].target; }
+  uint8_t assignmentZone(uint16_t index) const { return assignments_[index].zone; }
 
  private:
   struct Assignment { char target[24] = {}; uint8_t zone = 0; };
@@ -39,8 +39,8 @@ class ZoneManager {
 
   Zone zones_[kMaxZones];
   uint8_t count_ = 0;
-  Assignment assignments_[kMaxZoneAssignments];
-  uint8_t assignmentCount_ = 0;
+  Assignment* assignments_ = new Assignment[kMaxZoneAssignments]();  // ~25 KB: lands in PSRAM
+  uint16_t assignmentCount_ = 0;
 };
 
 }  // namespace whisli::app

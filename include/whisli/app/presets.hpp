@@ -6,7 +6,7 @@
 
 namespace whisli::app {
 
-constexpr uint8_t kMaxPresets = 32;  // both kinds together
+constexpr uint8_t kMaxPresets = 64;  // both kinds together
 
 // A named light colour to reuse: a white temperature for CCT lights or a colour for RGB/RGBW ones.
 // Applying one changes only the colour, never the brightness, and does not switch a light on.

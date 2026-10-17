@@ -477,7 +477,7 @@
   "homeZoneOn": "{on} of {total}",
   "homeZoneOff": "Turn off",
   "homeMemory": "Memory",
-  "homeMemoryValue": "RAM {heap} KB · NVS {nvs}",
+  "homeMemoryValue": "RAM {heap} KB free · configuration {files} KB",
   "homeWarnings": "Warnings: {count}",
   "homeNoWarnings": "No warnings",
   "homeAllOffTitle": "Turn all lights off?",

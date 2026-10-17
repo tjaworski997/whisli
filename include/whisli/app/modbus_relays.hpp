@@ -6,7 +6,7 @@
 
 namespace whisli::app {
 
-constexpr uint8_t kMaxRelayDevices = 8;
+constexpr uint8_t kMaxRelayDevices = 16;
 constexpr uint8_t kMaxRelayChannels = 32;
 
 struct RelaySnapshot {
@@ -56,7 +56,8 @@ class ModbusRelayManager {
   HardwareSerial serial_{1};
   QueueHandle_t commands_ = nullptr;
   SemaphoreHandle_t stateLock_ = nullptr;
-  RelaySnapshot devices_[kMaxRelayDevices];
+  // ~20 KB: allocated, so it lands in PSRAM; reads like a plain array.
+  RelaySnapshot (&devices_)[kMaxRelayDevices] = *new RelaySnapshot[1][kMaxRelayDevices]();
 };
 
 }  // namespace whisli::app

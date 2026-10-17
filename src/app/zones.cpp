@@ -1,6 +1,6 @@
 #include "whisli/app/zones.hpp"
 
-#include <Preferences.h>
+#include "whisli/system/config_store.hpp"
 
 #include "whisli/app/state_events.hpp"
 
@@ -18,22 +18,26 @@ String clean(const String& name) {
 }  // namespace
 
 void ZoneManager::begin() {
-  Preferences preferences;
+  // The counts follow from the lengths (older firmware also stored them as "count"/"assignedCount").
+  whisli::system::ConfigStore preferences;
   preferences.begin(kNamespace, true);
-  count_ = preferences.getUChar("count", 0);
-  if (count_ > kMaxZones || preferences.getBytes("zones", zones_, sizeof(Zone) * count_) != sizeof(Zone) * count_) count_ = 0;
-  assignmentCount_ = preferences.getUChar("assignedCount", 0);
-  if (assignmentCount_ > kMaxZoneAssignments ||
-      preferences.getBytes("assigned", assignments_, sizeof(Assignment) * assignmentCount_) != sizeof(Assignment) * assignmentCount_) {
-    assignmentCount_ = 0;
+  const size_t zonesSize = preferences.getBytesLength("zones");
+  if (zonesSize % sizeof(Zone) == 0 && zonesSize / sizeof(Zone) <= kMaxZones && preferences.getBytes("zones", zones_, zonesSize) == zonesSize) {
+    count_ = zonesSize / sizeof(Zone);
   }
-  preferences.end();
+  const size_t assignedSize = preferences.getBytesLength("assigned");
+  if (assignedSize % sizeof(Assignment) == 0 && assignedSize / sizeof(Assignment) <= kMaxZoneAssignments &&
+      preferences.getBytes("assigned", assignments_, assignedSize) == assignedSize) {
+    assignmentCount_ = assignedSize / sizeof(Assignment);
+  }
 }
 
 bool ZoneManager::save() {
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin(kNamespace, false);
-  bool ok = preferences.putUChar("count", count_) == 1 && preferences.putUChar("assignedCount", assignmentCount_) == 1;
+  preferences.remove("count");
+  preferences.remove("assignedCount");
+  bool ok = true;
   if (count_) ok = ok && preferences.putBytes("zones", zones_, sizeof(Zone) * count_) == sizeof(Zone) * count_;
   else preferences.remove("zones");
   if (assignmentCount_) ok = ok && preferences.putBytes("assigned", assignments_, sizeof(Assignment) * assignmentCount_) == sizeof(Assignment) * assignmentCount_;
@@ -84,8 +88,8 @@ bool ZoneManager::remove(uint8_t id) {
   if (index < 0) return false;
   for (uint8_t next = index + 1; next < count_; ++next) zones_[next - 1] = zones_[next];
   --count_;
-  uint8_t kept = 0;
-  for (uint8_t current = 0; current < assignmentCount_; ++current) {
+  uint16_t kept = 0;
+  for (uint16_t current = 0; current < assignmentCount_; ++current) {
     if (assignments_[current].zone != id) assignments_[kept++] = assignments_[current];
   }
   assignmentCount_ = kept;
@@ -106,7 +110,7 @@ bool ZoneManager::reorder(const uint8_t* ids, uint8_t count) {
 }
 
 uint8_t ZoneManager::zoneOf(const String& target) const {
-  for (uint8_t index = 0; index < assignmentCount_; ++index) {
+  for (uint16_t index = 0; index < assignmentCount_; ++index) {
     if (target == assignments_[index].target) return assignments_[index].zone;
   }
   return 0;
@@ -114,7 +118,7 @@ uint8_t ZoneManager::zoneOf(const String& target) const {
 
 bool ZoneManager::assign(const String& target, uint8_t zone) {
   if (target.isEmpty() || target.length() >= sizeof(Assignment::target) || (zone && !exists(zone))) return false;
-  for (uint8_t index = 0; index < assignmentCount_; ++index) {
+  for (uint16_t index = 0; index < assignmentCount_; ++index) {
     if (target != assignments_[index].target) continue;
     if (assignments_[index].zone == zone) return true;
     if (zone) {

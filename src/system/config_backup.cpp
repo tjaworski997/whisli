@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "whisli/net/json.hpp"
+#include "whisli/system/config_store.hpp"
 #include "whisli/system/notes.hpp"
 #include "whisli/version.generated.hpp"
 
@@ -247,6 +248,45 @@ void appendEntries(String& body, bool& first, const char* space, int which) {
   nvs_close(handle);
 }
 
+// The configuration namespaces live in files (see ConfigStore); rows look the same as NVS ones.
+String fileValue(nvs_type_t type, const std::vector<uint8_t>& data) {
+  if (type == NVS_TYPE_STR) return String(reinterpret_cast<const char*>(data.data()), data.size());
+  if (type == NVS_TYPE_BLOB) return base64(data.data(), data.size());
+  uint64_t raw = 0;
+  memcpy(&raw, data.data(), min<size_t>(data.size(), sizeof(raw)));
+  char text[24];
+  switch (type) {
+    case NVS_TYPE_I8: snprintf(text, sizeof(text), "%d", static_cast<int8_t>(raw)); break;
+    case NVS_TYPE_I16: snprintf(text, sizeof(text), "%d", static_cast<int16_t>(raw)); break;
+    case NVS_TYPE_I32: snprintf(text, sizeof(text), "%ld", static_cast<long>(static_cast<int32_t>(raw))); break;
+    case NVS_TYPE_I64: snprintf(text, sizeof(text), "%lld", static_cast<long long>(raw)); break;
+    default: snprintf(text, sizeof(text), "%llu", static_cast<unsigned long long>(raw)); break;
+  }
+  return text;
+}
+
+void appendFileEntries(String& body, bool& first, const char* space) {
+  whisli::system::ConfigStore store;
+  if (!store.begin(space, true)) return;
+  store.forEach([&](const String& key, nvs_type_t type, const std::vector<uint8_t>& data) {
+    const char* name = typeName(type);
+    if (!name) return;
+    body += first ? "\n" : ",\n";
+    body += "[\"" + String(space) + "\",\"" + whisli::net::jsonEscape(key) + "\",\"" + name + "\",\"" + whisli::net::jsonEscape(fileValue(type, data)) + "\"]";
+    first = false;
+  });
+}
+
+bool writeFileEntry(whisli::system::ConfigStore& store, const Entry& entry) {
+  if (entry.type == NVS_TYPE_BLOB) return store.write(entry.key.c_str(), entry.type, entry.blob.data(), entry.blob.size());
+  if (entry.type == NVS_TYPE_STR) return store.write(entry.key.c_str(), entry.type, entry.text.c_str(), entry.text.length());
+  const bool isSigned = entry.type == NVS_TYPE_I8 || entry.type == NVS_TYPE_I16 || entry.type == NVS_TYPE_I32 || entry.type == NVS_TYPE_I64;
+  const uint64_t raw = isSigned ? static_cast<uint64_t>(strtoll(entry.text.c_str(), nullptr, 10)) : strtoull(entry.text.c_str(), nullptr, 10);
+  const size_t size = entry.type == NVS_TYPE_U8 || entry.type == NVS_TYPE_I8 ? 1 : entry.type == NVS_TYPE_U16 || entry.type == NVS_TYPE_I16 ? 2 :
+                      entry.type == NVS_TYPE_U32 || entry.type == NVS_TYPE_I32 ? 4 : 8;
+  return store.write(entry.key.c_str(), entry.type, &raw, size);
+}
+
 bool deriveKey(const String& passphrase, const uint8_t* salt, size_t saltLength, uint32_t iterations, uint8_t key[32]) {
   return mbedtls_pkcs5_pbkdf2_hmac_ext(MBEDTLS_MD_SHA256, reinterpret_cast<const unsigned char*>(passphrase.c_str()), passphrase.length(),
                                        salt, saltLength, iterations, 32, key) == 0;
@@ -308,7 +348,7 @@ String exportJson(const String& passphrase) {
   String body = "{\"application\":\"Whisli\",\"format\":" + String(kFormat) + ",\"firmware\":\"" + String(kFirmwareVersion) +
                 "\",\"created\":" + String(now > 1700000000 ? static_cast<long>(now) : 0) + ",\"entries\":[";
   bool first = true;
-  for (const char* space : kNamespaces) appendEntries(body, first, space, 0);
+  for (const char* space : kNamespaces) appendFileEntries(body, first, space);
   for (const char* space : kMergedNamespaces) appendEntries(body, first, space, 1);
   body += "\n]";
   const auto note = notes::load();
@@ -323,6 +363,8 @@ String exportJson(const String& passphrase) {
   }
   return body + "}\n";
 }
+
+void moveConfigToFiles() { whisli::system::migrateConfigFromNvs(kNamespaces, sizeof(kNamespaces) / sizeof(kNamespaces[0])); }
 
 ImportResult import(const char* json, size_t length, const String& passphrase) {
   ImportResult result;
@@ -399,16 +441,12 @@ ImportResult import(const char* json, size_t length, const String& passphrase) {
 
   // Replace each namespace as a whole, so nothing from the old configuration lingers.
   for (const char* space : kNamespaces) {
-    nvs_handle_t handle;
-    if (nvs_open(space, NVS_READWRITE, &handle) != ESP_OK) return fail("Nie udało się zapisać konfiguracji.");
-    esp_err_t written = nvs_erase_all(handle);
+    whisli::system::ConfigStore store;
+    if (!store.begin(space)) return fail("Nie udało się zapisać konfiguracji.");
+    store.clear();
     for (const Entry& entry : entries) {
-      if (written != ESP_OK) break;
-      if (entry.space == space) written = writeEntry(handle, entry);
+      if (entry.space == space && !writeFileEntry(store, entry)) return fail("Nie udało się zapisać konfiguracji.");
     }
-    if (written == ESP_OK) written = nvs_commit(handle);
-    nvs_close(handle);
-    if (written != ESP_OK) return fail("Nie udało się zapisać konfiguracji.");
   }
   // Network and MQTT: only what the file has is written; everything else stays.
   for (const char* space : kMergedNamespaces) {

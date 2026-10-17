@@ -1,6 +1,6 @@
 #include "whisli/app/lights.hpp"
 
-#include <Preferences.h>
+#include "whisli/system/config_store.hpp"
 
 #include <memory>
 #include <cmath>
@@ -12,18 +12,24 @@
 namespace whisli::app {
 namespace {
 // Version 1, key "config": all 32 slots, used or not (2.3 KB). Read only to migrate.
-struct PersistedLights { uint8_t version = 1; LightSnapshot lights[kMaxLights] = {}; };
+constexpr uint8_t kLegacySlots = 32;
+struct PersistedLights { uint8_t version = 1; LightSnapshot lights[kLegacySlots] = {}; };
 // Version 2, key "lights": [version][count] and only the lights that exist. The settings storage is
 // small and every rewrite of a blob needs room for a second copy, so blobs stay as short as they can.
 constexpr uint8_t kCompactVersion = 2;
 
 // Writes only when the stored bytes differ, sparing the storage a copy of unchanged data.
-bool putIfChanged(Preferences& preferences, const char* key, const void* data, size_t size) {
-  if (preferences.getBytesLength(key) == size) {
-    std::unique_ptr<uint8_t[]> stored(new uint8_t[size]);
-    if (preferences.getBytes(key, stored.get(), size) == size && memcmp(stored.get(), data, size) == 0) return true;
-  }
+// The store itself skips writes of unchanged values.
+bool putIfChanged(whisli::system::ConfigStore& preferences, const char* key, const void* data, size_t size) {
   return preferences.putBytes(key, data, size) == size;
+}
+
+// Per-light tables saved with fewer slots (older firmware had 32): the rest keeps its defaults.
+void getUpTo(whisli::system::ConfigStore& preferences, const char* key, void* data, size_t size, size_t itemSize) {
+  const size_t stored = preferences.getBytesLength(key);
+  if (stored == 0 || stored > size || stored % itemSize != 0) return;
+  std::unique_ptr<uint8_t[]> buffer(new uint8_t[stored]);
+  if (preferences.getBytes(key, buffer.get(), stored) == stored) memcpy(data, buffer.get(), stored);
 }
 
 bool parseNumber(const String& value, uint8_t& output) {
@@ -46,10 +52,11 @@ LightManager::LightManager(ControllerIo& controller, ModbusRelayManager& relays,
 
 void LightManager::begin() {
   memset(colorTemperatures_, 50, sizeof(colorTemperatures_));
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin("whisli-lights", true);
   // Definitions: the compact key, or the old full one (then saved compactly once loaded).
   std::unique_ptr<PersistedLights> persisted(new PersistedLights());
+  std::unique_ptr<LightSnapshot[]> loadedLights(new LightSnapshot[kMaxLights]());
   bool loaded = false;
   const size_t compactSize = preferences.getBytesLength("lights");
   if (compactSize >= 2 && compactSize <= 2 + sizeof(LightSnapshot) * kMaxLights) {
@@ -59,7 +66,7 @@ void LightManager::begin() {
       for (uint8_t item = 0; item < compact[1]; ++item) {
         LightSnapshot light;
         memcpy(&light, compact.get() + 2 + sizeof(LightSnapshot) * item, sizeof(light));
-        if (light.id >= 1 && light.id <= kMaxLights) persisted->lights[light.id - 1] = light;  // a light's id is its slot + 1
+        if (light.id >= 1 && light.id <= kMaxLights) loadedLights[light.id - 1] = light;  // a light's id is its slot + 1
       }
       loaded = true;
     }
@@ -68,6 +75,7 @@ void LightManager::begin() {
   if (!loaded && preferences.getBytesLength("config") == sizeof(PersistedLights) &&
       preferences.getBytes("config", persisted.get(), sizeof(PersistedLights)) == sizeof(PersistedLights) && persisted->version == 1) {
     loaded = migrateDefinitions_ = true;
+    for (uint8_t index = 0; index < kLegacySlots; ++index) loadedLights[index] = persisted->lights[index];
   }
   // Other light data without the definitions means they went missing: say so instead of starting empty silently.
   if (!loaded && preferences.getBytesLength("cct") > 0) {
@@ -75,7 +83,7 @@ void LightManager::begin() {
   }
   if (loaded) {
     for (uint8_t index = 0; index < kMaxLights; ++index) {
-      const LightSnapshot& light = persisted->lights[index];
+      const LightSnapshot& light = loadedLights[index];
       if (!light.configured || light.id == 0 || light.name[0] == '\0') continue;
       if (isDmxKind(light.kind) && (light.dmxChannel == 0 || light.dmxChannel + dmxChannelCount(light.kind) - 1 > 512)) continue;
       lights_[index] = light;
@@ -87,13 +95,24 @@ void LightManager::begin() {
       }
     }
   }
-  preferences.getBytes("cct", colorTemperatures_, sizeof(colorTemperatures_));
-  if (preferences.getBytesLength("rgbw") == sizeof(colors_)) preferences.getBytes("rgbw", colors_, sizeof(colors_));
-  if (preferences.getBytesLength("dim") == sizeof(dimming_)) preferences.getBytes("dim", dimming_, sizeof(dimming_));
+  getUpTo(preferences, "cct", colorTemperatures_, sizeof(colorTemperatures_), sizeof(colorTemperatures_[0]));
+  getUpTo(preferences, "rgbw", colors_, sizeof(colors_), sizeof(colors_[0]));
+  getUpTo(preferences, "dim", dimming_, sizeof(dimming_), sizeof(dimming_[0]));
   if (preferences.getBytesLength("behav") == sizeof(defaults_)) preferences.getBytes("behav", &defaults_, sizeof(defaults_));
-  if (preferences.getBytesLength("behovr") == sizeof(overrides_)) preferences.getBytes("behovr", overrides_, sizeof(overrides_));
+  getUpTo(preferences, "behovr", overrides_, sizeof(overrides_), sizeof(overrides_[0]));
+  // Levels to restore: [levels][last-on levels], one byte per slot, possibly saved with fewer slots.
   SavedState saved;
-  const bool hasSaved = preferences.getBytesLength("state") == sizeof(saved) && preferences.getBytes("state", &saved, sizeof(saved)) == sizeof(saved);
+  bool hasSaved = false;
+  const size_t stateSize = preferences.getBytesLength("state");
+  if (stateSize >= 2 && stateSize % 2 == 0 && stateSize <= sizeof(saved)) {
+    std::unique_ptr<uint8_t[]> buffer(new uint8_t[stateSize]);
+    if (preferences.getBytes("state", buffer.get(), stateSize) == stateSize) {
+      const size_t slots = stateSize / 2;
+      memcpy(saved.level, buffer.get(), slots);
+      memcpy(saved.lastOn, buffer.get() + slots, slots);
+      hasSaved = true;
+    }
+  }
   preferences.end();
   if (migrateDefinitions_ && save()) {
     whisli::system::write(whisli::system::LogLevel::Info, "lights", "Light definitions moved to the compact storage layout");
@@ -232,7 +251,7 @@ bool LightManager::applyLevel(uint8_t id, uint8_t level, int colorTemperature, c
     if (colorTemperature > 100) return false;
     colorTemperatures_[index] = static_cast<uint8_t>(colorTemperature);
     if (!chaos_.active) {  // chaos colours are never written to flash
-      Preferences preferences;
+      whisli::system::ConfigStore preferences;
       preferences.begin("whisli-lights", false);
       putIfChanged(preferences, "cct", colorTemperatures_, sizeof(colorTemperatures_));
       preferences.end();
@@ -418,7 +437,7 @@ bool LightManager::setBehaviorOverride(uint8_t id, const LightBehaviorOverride& 
 }
 
 bool LightManager::saveBehavior() {
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin("whisli-lights", false);
   const bool saved = putIfChanged(preferences, "behav", &defaults_, sizeof(defaults_)) &&
                      putIfChanged(preferences, "behovr", overrides_, sizeof(overrides_));
@@ -438,7 +457,7 @@ bool LightManager::takeStateToSave(SavedState& output, bool now) {
 }
 
 void LightManager::saveState(const SavedState& state) {
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin("whisli-lights", false);
   putIfChanged(preferences, "state", &state, sizeof(state));
   preferences.end();
@@ -476,7 +495,7 @@ bool LightManager::setDimming(uint8_t id, uint8_t minimumPercent, DimCurve curve
   if (index < 0 || !isDmxKind(lights_[index].kind) || minimumPercent > 50 || static_cast<uint8_t>(curve) > 2) return false;
   const DimmingProfile previous = dimming_[index];
   dimming_[index] = DimmingProfile{minimumPercent, curve};
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin("whisli-lights", false);
   const bool saved = putIfChanged(preferences, "dim", dimming_, sizeof(dimming_));
   preferences.end();
@@ -492,7 +511,7 @@ DimmingProfile LightManager::dimming(uint8_t id) const {
 }
 
 bool LightManager::saveColors() {
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin("whisli-lights", false);
   const bool saved = putIfChanged(preferences, "rgbw", colors_, sizeof(colors_));
   preferences.end();
@@ -528,7 +547,7 @@ bool LightManager::save() {
     memcpy(compact.get() + offset, &light, sizeof(light));
     offset += sizeof(light);
   }
-  Preferences preferences; preferences.begin("whisli-lights", false);
+  whisli::system::ConfigStore preferences; preferences.begin("whisli-lights", false);
   const bool configSaved = putIfChanged(preferences, "lights", compact.get(), size);
   if (configSaved && preferences.isKey("config")) preferences.remove("config");  // the old full layout
   const bool temperaturesSaved = putIfChanged(preferences, "cct", colorTemperatures_, sizeof(colorTemperatures_));

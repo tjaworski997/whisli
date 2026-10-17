@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <ETH.h>
+#include <LittleFS.h>
 #include <WiFi.h>
 #include <nvs.h>
 
@@ -19,6 +20,8 @@
 #include "whisli/bootstrap/bootstrap_portal.hpp"
 #include "whisli/net/http_server.hpp"
 #include "whisli/net/json.hpp"
+#include "whisli/system/config_backup.hpp"
+#include "whisli/system/config_store.hpp"
 #include "whisli/system/log.hpp"
 #include "whisli/system/state_lock.hpp"
 #include "whisli/system/task_priorities.hpp"
@@ -255,7 +258,7 @@ void sendActionPanel(Request& request) {
     }
   }
   body += "],\"events\":[";
-  for (uint8_t index = 0; index < inputActions.eventCount(); ++index) {
+  for (uint16_t index = 0; index < inputActions.eventCount(); ++index) {
     InputEventBinding event;
     if (!inputActions.getEvent(index, event)) continue;
     if (index) body += ',';
@@ -263,7 +266,7 @@ void sendActionPanel(Request& request) {
         "\",\"trigger\":\"" + String(InputActionManager::triggerName(event.trigger)) + "\"}";
   }
   body += "],\"actions\":[";
-  for (uint8_t index = 0; index < inputActions.count(); ++index) {
+  for (uint16_t index = 0; index < inputActions.count(); ++index) {
     InputAction action;
     if (!inputActions.get(index, action)) continue;
     if (index) body += ',';
@@ -347,7 +350,7 @@ void sendZones(Request& request) {
     body += "{\"id\":" + String(zone.id) + ",\"name\":\"" + jsonEscape(zone.name) + "\"}";
   }
   body += "],\"assignments\":{";
-  for (uint8_t index = 0; index < zones.assignmentCount(); ++index) {
+  for (uint16_t index = 0; index < zones.assignmentCount(); ++index) {
     if (index) body += ',';
     body += "\"" + jsonEscape(zones.assignmentTarget(index)) + "\":" + String(zones.assignmentZone(index));
   }
@@ -409,8 +412,11 @@ void configureZoneRoutes() {
 String nvsStats() {
   nvs_stats_t stats;
   if (nvs_get_stats(nullptr, &stats) != ESP_OK) return String();
-  return ",\"nvsUsedEntries\":" + String(stats.used_entries) + ",\"nvsFreeEntries\":" + String(stats.available_entries) +
-         ",\"nvsNamespaces\":" + String(stats.namespace_count);
+  String body = ",\"nvsUsedEntries\":" + String(stats.used_entries) + ",\"nvsFreeEntries\":" + String(stats.available_entries) +
+                ",\"nvsNamespaces\":" + String(stats.namespace_count);
+  // The file storage holding the configuration and notes.
+  if (whisli::system::mountFiles()) body += ",\"filesUsedKb\":" + String(LittleFS.usedBytes() / 1024) + ",\"filesTotalKb\":" + String(LittleFS.totalBytes() / 1024);
+  return body;
 }
 
 uint8_t requestedLightId(const Request& request) {
@@ -513,6 +519,7 @@ void sendAsset(Request& request, size_t index) {
 }  // namespace
 
 void begin() {
+  whisli::system::backup::moveConfigToFiles();  // once: configuration from NVS to the file storage
   relays.begin();
   controllerIo.begin();
   dmx.begin();

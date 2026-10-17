@@ -4,26 +4,17 @@
 
 #include <ctime>
 
+#include "whisli/system/config_store.hpp"
 #include "whisli/system/log.hpp"
 
 namespace whisli::system::notes {
 namespace {
 
-constexpr char kPartition[] = "spiffs";
 constexpr char kTextPath[] = "/notes.txt";
 constexpr char kTempPath[] = "/notes.tmp";
 constexpr char kModifiedPath[] = "/notes.modified";
 
-// Mounted on first use rather than at start-up: nothing here may delay buttons and lights. An empty
-// partition is formatted once.
-bool mounted() {
-  static int8_t state = -1;  // -1 not tried, 0 failed, 1 mounted
-  if (state < 0) {
-    state = LittleFS.begin(true, "/littlefs", 2, kPartition) ? 1 : 0;
-    if (!state) write(LogLevel::Error, "system", "Notes storage (LittleFS) could not be mounted");
-  }
-  return state == 1;
-}
+bool mounted() { return mountFiles(); }
 
 bool writeFile(const char* path, const String& text) {
   File file = LittleFS.open(path, "w");

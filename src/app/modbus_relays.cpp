@@ -1,6 +1,6 @@
 #include "whisli/app/modbus_relays.hpp"
 
-#include <Preferences.h>
+#include "whisli/system/config_store.hpp"
 #include <driver/uart.h>
 #include <cstring>
 
@@ -49,7 +49,7 @@ void addCrc(uint8_t* frame, size_t frameSize) {
 void ModbusRelayManager::begin() {
   stateLock_ = xSemaphoreCreateMutex();
   commands_ = xQueueCreate(16, sizeof(Command));
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin("whisli-relay", false);
 
   // Migracja jednourządzeniowego prototypu do pierwszego slotu.
@@ -122,7 +122,7 @@ bool ModbusRelayManager::saveDevice(uint8_t slot) {
     if (device.channelUsed[channel]) saved.channelUsed |= static_cast<uint32_t>(1) << channel;
     strlcpy(saved.channelNames[channel], device.channelNames[channel], sizeof(saved.channelNames[channel]));
   }
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin("whisli-relay", false);
   const size_t written = preferences.putBytes(("d" + String(slot)).c_str(), &saved, sizeof(saved));
   preferences.end();
@@ -194,7 +194,7 @@ bool ModbusRelayManager::remove(uint8_t id) {
   if (slot < 0) { xSemaphoreGive(stateLock_); return false; }
   devices_[slot] = RelaySnapshot{};
   xSemaphoreGive(stateLock_);
-  Preferences preferences;
+  whisli::system::ConfigStore preferences;
   preferences.begin("whisli-relay", false);
   preferences.remove(("d" + String(slot)).c_str());
   preferences.end();
