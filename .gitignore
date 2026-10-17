@@ -1,0 +1,11 @@
+.pio/
+_build/
+.vscode/
+*.local.ini
+ui/node_modules/
+ui/dist/
+data/www/
+src/app/embedded_ui.hpp
+include/whisli/app/device_profiles.generated.hpp
+include/whisli/version.generated.hpp
+

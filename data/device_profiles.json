@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "classes": [
+    {
+      "id": "relay",
+      "nameKey": "deviceClassRelay",
+      "descriptionKey": "deviceClassRelayDescription",
+      "icon": "radio",
+      "available": true
+    },
+    {
+      "id": "led_dimmer",
+      "nameKey": "deviceClassLedDimmer",
+      "descriptionKey": "deviceClassLedDimmerDescription",
+      "icon": "lightbulb",
+      "available": false
+    },
+    {
+      "id": "mains_dimmer",
+      "nameKey": "deviceClass230Dimmer",
+      "descriptionKey": "deviceClass230DimmerDescription",
+      "icon": "zap",
+      "available": false
+    }
+  ],
+  "profiles": [
+    {
+      "id": "waveshare_16ch",
+      "deviceClass": "relay",
+      "nameKey": "relayProfile16",
+      "descriptionKey": "relay16CatalogDescription",
+      "defaultNameKey": "relayDefaultName16",
+      "communication": "RS-485 · Modbus RTU · 16 CH",
+      "searchKeywords": "waveshare 16 16ch 16 channel relay przekaźnik modbus rtu rs485",
+      "defaultChannelCount": 16,
+      "defaultCoilStart": 0,
+      "minimumChannelCount": 1,
+      "maximumChannelCount": 32,
+      "editableChannelCount": true,
+      "editableCoilStart": true,
+      "available": true
+    },
+    {
+      "id": "waveshare_32ch",
+      "deviceClass": "relay",
+      "nameKey": "relayProfile32",
+      "descriptionKey": "relay32CatalogDescription",
+      "defaultNameKey": "relayDefaultName32",
+      "communication": "RS-485 · Modbus RTU · 32 CH",
+      "searchKeywords": "waveshare 32 32ch 32 channel relay przekaźnik modbus rtu rs485",
+      "defaultChannelCount": 32,
+      "defaultCoilStart": 0,
+      "minimumChannelCount": 1,
+      "maximumChannelCount": 32,
+      "editableChannelCount": true,
+      "editableCoilStart": true,
+      "available": true
+    },
+    {
+      "id": "custom",
+      "deviceClass": "relay",
+      "nameKey": "relayProfileCustom",
+      "descriptionKey": "customRelayCatalogDescription",
+      "defaultNameKey": "relayDefaultNameCustom",
+      "communication": "RS-485 · Modbus RTU",
+      "searchKeywords": "custom własny relay przekaźnik modbus rtu rs485",
+      "defaultChannelCount": 8,
+      "defaultCoilStart": 0,
+      "minimumChannelCount": 1,
+      "maximumChannelCount": 64,
+      "editableChannelCount": true,
+      "editableCoilStart": true,
+      "available": true
+    }
+  ]
+}

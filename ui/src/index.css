@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  --page: #fafafa;
+  --card: #ffffff;
+  --raised: #f4f4f5;
+  --ink: #18181b;
+  --muted: #71717a;
+  --line: #e4e4e7;
+  --status-ok: #2563eb;
+  --status-ok-bg: #eff6ff;
+  --status-error: #dc2626;
+  --status-error-bg: #fef2f2;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #09090b;
+  --card: #09090b;
+  --raised: #18181b;
+  --ink: #f4f4f5;
+  --muted: #a1a1aa;
+  --line: #27272a;
+  --status-ok: #60a5fa;
+  --status-ok-bg: #172554;
+  --status-error: #f87171;
+  --status-error-bg: #450a0a;
+}
+
+body { margin: 0; min-width: 320px; background: var(--page); color: var(--ink); }
+button { font: inherit; }
+/* Component classes live in a layer so Tailwind utilities (h-8, px-2…) can override them. */
+@layer components {
+  .whisli-page { background: var(--page); color: var(--ink); }
+  .whisli-line { border-color: var(--line); }
+  .whisli-muted { color: var(--muted); }
+  .whisli-raised { background: var(--raised); }
+  .whisli-nav { color: var(--muted); }
+  .whisli-nav:hover { background: var(--raised); color: var(--ink); }
+  .whisli-nav-active { background: var(--raised); color: var(--ink); }
+  .whisli-link { color: var(--muted); }
+  .whisli-link:hover { color: var(--ink); }
+  .whisli-button-primary { background: var(--raised); color: var(--ink); border: 1px solid var(--line); }
+  .whisli-button-primary:hover { background: var(--card); }
+  .whisli-button-outline { border-color: var(--line); color: var(--ink); }
+  .whisli-button-outline:hover, .whisli-button-ghost:hover { background: var(--raised); }
+  .whisli-button-ghost { color: var(--muted); border-color: transparent; }
+  .whisli-button-danger { border-color: var(--status-error); color: var(--status-error); }
+  .whisli-button-danger-ghost { color: var(--status-error); border-color: transparent; }
+  .whisli-button-danger:hover, .whisli-button-danger-ghost:hover { background: var(--status-error-bg); }
+  .whisli-file { color: var(--muted); }
+  .whisli-file::file-selector-button { border: 0; background: var(--raised); color: var(--ink); }
+  .whisli-input { border: 1px solid var(--line); border-radius: .375rem; background: transparent; color: var(--ink); padding: .5rem .75rem; }
+  .whisli-input-with-icon { padding-left: 2.25rem; }
+  .whisli-input-inline { height: 2rem; min-width: 0; width: 100%; border-color: transparent; padding: 0 .5rem; }
+  .whisli-input-inline:hover, .whisli-input-inline:focus { border-color: var(--line); }
+  .whisli-select { height: 2.25rem; min-width: 0; border: 1px solid var(--line); border-radius: .375rem; background: var(--page); color: var(--ink); padding: 0 .5rem; }
+  .whisli-status-ok { color: var(--status-ok); }
+  .whisli-status-error { color: var(--status-error); }
+  .whisli-dialog { width: min(28rem, calc(100% - 2rem)); margin: auto; border: 1px solid var(--line); border-radius: .75rem; background: var(--card); color: var(--ink); padding: 1.25rem; box-shadow: 0 24px 72px rgb(0 0 0 / .22); }
+  .whisli-popover { border: 1px solid var(--line); border-radius: .5rem; background: var(--card); color: var(--ink); box-shadow: 0 12px 32px rgb(0 0 0 / .14); }
+  .whisli-dialog::backdrop { background: rgb(9 9 11 / .52); backdrop-filter: blur(2px); }
+}
+
+/* Map (React Flow): nodes use the panel tokens; a gesture lights its path in the accent blue. */
+.react-flow {
+  --xy-background-color: var(--page);
+  --xy-background-pattern-color: var(--line);
+  --xy-edge-stroke: color-mix(in srgb, var(--muted) 55%, transparent);
+  --xy-edge-stroke-width: 1.5;
+  --xy-controls-button-background-color: var(--card);
+  --xy-controls-button-background-color-hover: var(--raised);
+  --xy-controls-button-color: var(--ink);
+  --xy-controls-button-border-color: var(--line);
+}
+.whisli-map-node { background: var(--card); border-color: var(--line); color: var(--ink); }
+.react-flow__node { cursor: pointer; }
+.whisli-map-hexagon polygon { fill: var(--card); stroke: var(--line); stroke-width: 1; transition: stroke .3s; }
+.whisli-map-hexagon-active { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--status-ok) 45%, transparent)); }
+.whisli-map-hexagon-active polygon { stroke: var(--status-ok); stroke-width: 1.5; }
+.whisli-map-power { background: var(--card); border-color: var(--line); color: var(--muted); transition: color .15s, border-color .15s, box-shadow .15s; }
+.whisli-map-power:hover { color: var(--ink); border-color: var(--ink); }
+.whisli-map-power-on { color: var(--status-ok); border-color: var(--status-ok); box-shadow: 0 0 8px color-mix(in srgb, var(--status-ok) 40%, transparent); }
+.whisli-map-node-active { border-color: var(--status-ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-ok) 25%, transparent), 0 0 18px color-mix(in srgb, var(--status-ok) 35%, transparent); }
+.whisli-map-key { border-color: var(--line); color: var(--muted); background: var(--raised); transition: all .15s; }
+.whisli-map-key-pressed { border-color: var(--status-ok); color: var(--status-ok); background: color-mix(in srgb, var(--status-ok) 18%, transparent); box-shadow: 0 0 12px color-mix(in srgb, var(--status-ok) 55%, transparent); transform: scale(.92); }
+.whisli-map-relay-on { background: rgb(34 197 94 / .16); color: #16a34a; }
+.react-flow__edge.whisli-map-edge-active .react-flow__edge-path { stroke: var(--status-ok); stroke-width: 2.5; }
+
+/* A row pointed out from the map: a hairline accent frame; a soft glow on arrival fades out. */
+.whisli-highlight {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-ok) 28%, transparent);
+  animation: whisli-highlight-in 1.6s cubic-bezier(.2, .7, .2, 1);
+}
+@keyframes whisli-highlight-in {
+  from { box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-ok) 45%, transparent), 0 0 0 6px color-mix(in srgb, var(--status-ok) 12%, transparent); }
+  to { box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-ok) 28%, transparent), 0 0 0 6px transparent; }
+}
