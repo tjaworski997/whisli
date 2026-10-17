@@ -1,6 +1,6 @@
 import "@xyflow/react/dist/style.css"
 
-import { Background, Controls, Handle, Position, ReactFlow, type Edge, type Node, type NodeProps } from "@xyflow/react"
+import { Background, Controls, Handle, Position, ReactFlow, type Edge, type Node, type NodeChange, type NodeProps } from "@xyflow/react"
 import { ChevronsDown, ChevronsUp, Hand, Palette, Lightbulb, LightbulbOff, MapPin, MousePointerClick, SunMedium, Power, PowerOff, Repeat2, Timer, ToggleLeft, ToggleRight, type LucideIcon } from "lucide-react"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
@@ -253,6 +253,18 @@ export function MapPage({ theme, onOpen }: { theme: "light" | "dark"; onOpen: (r
   const [highlight, setHighlight] = useState<Map<string, number>>(new Map())
   // Buttons held down right now: they glow from press to release, before any gesture is recognised.
   const [held, setHeld] = useState<Set<string>>(new Set())
+  // Sizes React Flow measured. Nodes are rebuilt on every highlight and refresh; without their size
+  // React Flow hides them until measured again, which rapid button presses never let happen.
+  const [measured, setMeasured] = useState<Map<string, { width: number; height: number }>>(new Map())
+  function onNodesChange(changes: NodeChange<MapNode>[]) {
+    const sizes = changes.filter(change => change.type === "dimensions" && change.dimensions)
+    if (sizes.length === 0) return
+    setMeasured(current => {
+      const next = new Map(current)
+      for (const change of sizes) if (change.type === "dimensions" && change.dimensions) next.set(change.id, change.dimensions)
+      return next
+    })
+  }
   const dataRef = useRef<MapData | null>(null)
   const zones = useZones()
   const { presets } = usePresets()
@@ -328,11 +340,11 @@ export function MapPage({ theme, onOpen }: { theme: "light" | "dark"; onOpen: (r
 
   const nodes = useMemo(() => graph.nodes.map(node => {
     const toggle = node.data.toggle
-    return { ...node, data: {
+    return { ...node, measured: measured.get(node.id), data: {
       ...node.data, active: highlight.has(node.id) || held.has(node.id), held: held.has(node.id),
       toggle: toggle && (() => { flash([node.id]); return toggle() }),
     } }
-  }), [graph, highlight, held])
+  }), [graph, highlight, held, measured])
   const edges = useMemo(() => graph.edges.map(edge => {
     const active = highlight.has(edge.source) && highlight.has(edge.target)
     return { ...edge, animated: active, className: active ? "whisli-map-edge-active" : undefined }
@@ -352,6 +364,7 @@ export function MapPage({ theme, onOpen }: { theme: "light" | "dark"; onOpen: (r
         key={String(activeFilter)}  // a new zone filter fits the view again
         nodes={nodes}
         edges={edges}
+        onNodesChange={onNodesChange}
         nodeTypes={nodeTypes}
         colorMode={theme}
         nodesConnectable={false}
