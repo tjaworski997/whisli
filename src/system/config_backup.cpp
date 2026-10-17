@@ -18,7 +18,15 @@ namespace whisli::system::backup {
 namespace {
 
 constexpr int kFormat = 1;
-constexpr const char* kNamespaces[] = {"whisli-board", "whisli-relay", "whisli-lights", "whisli-actions", "whisli-zones", "whisli-presets"};
+constexpr const char* kNamespaces[] = {"whisli-board", "whisli-relay", "whisli-lights", "whisli-actions", "whisli-zones", "whisli-presets", "whisli-hooks"};
+// File namespaces that are secret as a whole (HTTP integration headers with tokens): only in the
+// encrypted part, and replaced only when that part is read.
+constexpr const char* kSecretFileNamespaces[] = {"whisli-hookauth"};
+
+bool secretFileSpace(const String& name) {
+  for (const char* candidate : kSecretFileNamespaces) if (name == candidate) return true;
+  return false;
+}
 
 bool backedUp(const String& name) {
   for (const char* candidate : kNamespaces) if (name == candidate) return true;
@@ -199,7 +207,7 @@ bool parseEntry(Reader& reader, Entry& entry, bool secretPart = false) {
   if (!(reader.take('[') && reader.string(entry.space) && reader.take(',') && reader.string(entry.key) && reader.take(',') &&
         reader.string(type) && reader.take(',') && reader.string(entry.text) && reader.take(']'))) return false;
   const MergedKey* merged = mergedKey(entry.space, entry.key);
-  const bool allowed = secretPart ? merged && merged->secret : backedUp(entry.space) || (merged && !merged->secret);
+  const bool allowed = secretPart ? (merged && merged->secret) || secretFileSpace(entry.space) : backedUp(entry.space) || (merged && !merged->secret);
   if (!allowed || entry.key.isEmpty() || entry.key.length() > NVS_KEY_NAME_MAX_SIZE - 1) return false;
   if (!typeFromName(type, entry.type)) return false;
   if (entry.type == NVS_TYPE_BLOB) { if (!fromBase64(entry.text, entry.blob)) return false; entry.text = String(); }
@@ -357,6 +365,7 @@ String exportJson(const String& passphrase) {
     String secret = "[";
     bool firstSecret = true;
     for (const char* space : kMergedNamespaces) appendEntries(secret, firstSecret, space, 2);
+    for (const char* space : kSecretFileNamespaces) appendFileEntries(secret, firstSecret, space);
     const String encrypted = encryptSecrets(secret + "]", passphrase);
     if (encrypted.isEmpty()) return String();
     body += ",\"secrets\":" + encrypted;
@@ -460,6 +469,16 @@ ImportResult import(const char* json, size_t length, const String& passphrase) {
     if (written == ESP_OK) written = nvs_commit(handle);
     nvs_close(handle);
     if (written != ESP_OK) return fail("Nie udało się zapisać ustawień sieci.");
+  }
+  if (result.secretsApplied) {
+    for (const char* space : kSecretFileNamespaces) {
+      whisli::system::ConfigStore store;
+      if (!store.begin(space)) return fail("Nie udało się zapisać konfiguracji.");
+      store.clear();
+      for (const Entry& entry : entries) {
+        if (entry.space == space && !writeFileEntry(store, entry)) return fail("Nie udało się zapisać konfiguracji.");
+      }
+    }
   }
   if (hasNote && !notes::save(noteText, static_cast<uint32_t>(noteModified))) return fail("Nie udało się zapisać notatki.");
   return result;

@@ -18,6 +18,7 @@ import { DeviceListPage } from "@/pages/device-list-page"
 import { HomePage } from "@/pages/home-page"
 import { LoginPage } from "@/pages/login-page"
 import { LogsPage } from "@/pages/logs-page"
+import { WebhooksPage } from "@/pages/webhooks-page"
 import { NotesPage } from "@/pages/notes-page"
 import { MqttPage, NetworkPage } from "@/pages/network-page"
 import { LightPresetsPage } from "@/pages/light-presets-page"
@@ -38,7 +39,7 @@ const navigation: NavigationItem[] = [
   { page: "home", label: "navHome", icon: House },
   { page: "devices", label: "devices", icon: Boxes },
   { page: "lights", label: "lights", icon: Lightbulb, children: [{ page: "lights", label: "lightDefinitions" }, { page: "lightPresets", label: "navLightPresets" }, { page: "lightSettings", label: "navLightSettings" }] },
-  { page: "actions", label: "buttons", icon: Zap },
+  { page: "actions", label: "buttons", icon: Zap, children: [{ page: "actions", label: "navActionsButtons" }, { page: "webhooks", label: "hooksTitle" }] },
   { page: "zones", label: "zonesTitle", icon: MapPin },
   { page: "map", label: "navMap", icon: Workflow },
   { page: "system", label: "navSystem", icon: Settings, children: [{ page: "system", label: "navSystemSettings" }, { page: "network", label: "networkTitle" }, { page: "mqtt", label: "mqttTitle" }, { page: "test", label: "testTitle" }, { page: "logs", label: "systemLogs" }] },
@@ -103,6 +104,7 @@ function Panel() {
       case "test": return <TestPage devices={deviceList} onRefreshDevices={refreshDevices} />
       case "system": return <SystemPage />
       case "notes": return <NotesPage />
+      case "webhooks": return <WebhooksPage />
       case "device":
         if (devices === null) return <Muted>{t("connecting")}</Muted>
         if (device?.kind === "relay") return <RelayPage key={device.id} relay={device} onBack={backToDevices} onRefresh={refreshDevices} onRemove={() => setPendingRemoval(device)} />

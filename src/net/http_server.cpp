@@ -13,7 +13,7 @@
 namespace whisli::net {
 namespace {
 
-constexpr size_t kMaxFormBody = 4096;
+constexpr size_t kMaxFormBody = 16384;  // HTTP integrations: URL, headers and body in one form
 constexpr size_t kMaxClients = 10;  // + 3 internal sockets, within CONFIG_LWIP_MAX_SOCKETS (16)
 constexpr char kRealm[] = "Basic realm=\"Login Required\"";
 

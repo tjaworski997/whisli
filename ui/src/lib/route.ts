@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 
-export type Page = "home" | "devices" | "deviceTypes" | "device" | "lights" | "lightSettings" | "lightPresets" | "actions" | "zones" | "map" | "network" | "mqtt" | "test" | "system" | "logs" | "notes"
+export type Page = "home" | "devices" | "deviceTypes" | "device" | "lights" | "lightSettings" | "lightPresets" | "actions" | "zones" | "map" | "network" | "mqtt" | "test" | "system" | "logs" | "notes" | "webhooks"
 /** Actions page narrowed to one button (`input:<id>`) or to what drives one target (`target:<id>`). */
 export type ActionsFilter = `input:${string}` | `target:${string}`
 /** A row to point out on the Actions page: `event-<id>` or `action-<id>`. */
@@ -8,7 +8,7 @@ export type ActionsHighlight = `event-${number}` | `action-${number}`
 export type AppRoute = { page: Page; deviceId?: string; filter?: ActionsFilter; highlight?: ActionsHighlight; lightId?: number }
 
 // "logs" stays here so old #/logs links still open the log (now at #/system/logs).
-const simplePages: Page[] = ["home", "devices", "lights", "actions", "zones", "map", "logs", "system", "notes"]
+const simplePages: Page[] = ["home", "devices", "lights", "actions", "zones", "map", "logs", "system", "notes", "webhooks"]
 
 function parseRoute(hash = window.location.hash): AppRoute {
   const [section, detail] = hash.replace(/^#\/?/, "").split("/")

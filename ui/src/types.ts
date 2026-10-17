@@ -61,7 +61,7 @@ export type PanelAction = { id: number; inputId: string; trigger: string; comman
 export type PanelEvent = { id: number; inputId: string; trigger: string }
 export type PanelInput = { id: string; name: string; hardwareName: string; high: boolean; lastEvent: string }
 /** `dimmable`: lights on DMX, which take brightness commands. */
-export type PanelTarget = { id: string; group: "light" | "relay"; name: string; state: boolean; online: boolean; dimmable?: boolean; kind?: Light["kind"] }
+export type PanelTarget = { id: string; group: "light" | "relay" | "hook"; name: string; state: boolean; online: boolean; dimmable?: boolean; kind?: Light["kind"] }
 export type ActionPanelData = { inputs: PanelInput[]; targets: PanelTarget[]; events: PanelEvent[]; actions: PanelAction[]; triggers: string[]; commands: string[] }
 
 export type DeviceClassDefinition = { id: string; nameKey: string; descriptionKey: string; icon: string; available: boolean }
@@ -141,3 +141,18 @@ export type WifiNetwork = { ssid: string; rssi: number; open: boolean }
 
 /** Chaos mode: random lights and outputs until stopped (/api/v1/test). */
 export type TestStatus = { chaos: { running: boolean; restoring: boolean; elapsedSeconds: number; switches: number } }
+
+/** An HTTP request a button action can send ("hook-<id>" as the action target). */
+export type HttpHook = {
+  id: number
+  name: string
+  method: "GET" | "POST" | "PUT" | "DELETE"
+  url: string
+  /** "Name: value" per line. */
+  headers: string
+  body: "none" | "json" | "form" | "text"
+  bodyTemplate: string
+  /** https:// without checking the certificate. */
+  insecure: boolean
+}
+export type HttpHookResult = { sent: boolean; status: number; error: string; response: string }

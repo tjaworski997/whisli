@@ -47,6 +47,16 @@ bool parseRelayOutputId(const String& value, uint8_t& id, uint8_t& channel) {
 }  // namespace
 
 namespace {
+// HTTP integration targets look like "hook-2".
+bool parseHookId(const String& targetId, uint8_t& id) {
+  if (!targetId.startsWith("hook-") || targetId.length() < 6) return false;
+  for (unsigned int index = 5; index < targetId.length(); ++index) if (!isDigit(targetId[index])) return false;
+  const long value = targetId.substring(5).toInt();
+  if (value < 1 || value > 255) return false;
+  id = static_cast<uint8_t>(value);
+  return true;
+}
+
 // Light targets look like "light-3".
 bool parseLightId(const String& targetId, uint8_t& id) {
   if (!targetId.startsWith("light-") || targetId.length() < 7) return false;
@@ -58,8 +68,8 @@ bool parseLightId(const String& targetId, uint8_t& id) {
 }
 }  // namespace
 
-InputActionManager::InputActionManager(ControllerIo& controller, ModbusRelayManager& relays, LightManager& lights, PresetManager& presets)
-    : controller_(controller), relays_(relays), lights_(lights), presets_(presets),
+InputActionManager::InputActionManager(ControllerIo& controller, ModbusRelayManager& relays, LightManager& lights, PresetManager& presets, HttpHookManager& hooks)
+    : controller_(controller), relays_(relays), lights_(lights), presets_(presets), hooks_(hooks),
       actions_(new InputAction[kMaxInputActions]()), events_(new InputEventBinding[kMaxInputEvents]()) {}
 
 void InputActionManager::begin() {
@@ -236,6 +246,9 @@ uint8_t InputActionManager::valueFor(ActionCommand command, int requested, uint8
 }
 
 bool InputActionManager::fits(ActionCommand command, uint8_t value, const String& targetId) const {
+  // An integration is only sent, and "send" only goes to an integration.
+  uint8_t hookId = 0;
+  if (!targetId.isEmpty() && (command == ActionCommand::RunHook) != parseHookId(targetId, hookId)) return false;
   if (!dimmingOnly(command) || targetId.isEmpty()) return true;  // no target yet: checked when one is chosen
   uint8_t lightId = 0;
   LightSnapshot light;
@@ -342,6 +355,7 @@ bool InputActionManager::parseCommand(const String& value, ActionCommand& output
   else if (value == "stepDown") output = ActionCommand::StepDown;
   else if (value == "setLevel") output = ActionCommand::SetLevel;
   else if (value == "preset") output = ActionCommand::SetPreset;
+  else if (value == "run") output = ActionCommand::RunHook;
   else if (value.isEmpty()) output = ActionCommand::None;
   else return false;
   return true;
@@ -370,6 +384,7 @@ const char* InputActionManager::commandName(ActionCommand command) {
     case ActionCommand::RetiredHoldDown: return "";  // shown as an action still to choose
     case ActionCommand::SetLevel: return "setLevel";
     case ActionCommand::SetPreset: return "preset";
+    case ActionCommand::RunHook: return "run";
     case ActionCommand::None: return "";
   }
   return "toggle";
@@ -409,6 +424,8 @@ bool InputActionManager::inputAvailable(const String& inputId) const {
 }
 
 bool InputActionManager::targetAvailable(const String& targetId) const {
+  uint8_t hookId = 0;
+  if (parseHookId(targetId, hookId)) return hooks_.exists(hookId);
   uint8_t lightId = 0;
   LightSnapshot light;
   if (parseLightId(targetId, lightId)) return lights_.find(lightId, light) && light.kind != LightKind::None;
@@ -423,6 +440,12 @@ bool InputActionManager::targetAvailable(const String& targetId) const {
 
 bool InputActionManager::execute(const InputAction& action) {
   if (action.command == ActionCommand::None || action.targetId[0] == '\0') return false;
+  uint8_t hookId = 0;
+  if (parseHookId(action.targetId, hookId)) {
+    // Queued: the request goes out from its own task, the button never waits for it.
+    return action.command == ActionCommand::RunHook && hooks_.trigger(hookId, HookContext{action.inputId, triggerName(action.trigger)});
+  }
+  if (action.command == ActionCommand::RunHook) return false;
   uint8_t lightId = 0;
   if (parseLightId(action.targetId, lightId)) {
     LightSnapshot light;

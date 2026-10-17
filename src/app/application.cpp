@@ -41,7 +41,8 @@ DmxOutput dmx;
 LightManager lights(controllerIo, relays, dmx);
 ZoneManager zones;
 PresetManager presets(lights);
-InputActionManager inputActions(controllerIo, relays, lights, presets);
+HttpHookManager hooks(controllerIo, zones);
+InputActionManager inputActions(controllerIo, relays, lights, presets, hooks);
 ChaosMode chaos(controllerIo, relays, lights);
 MqttBridge mqttBridge(lights, controllerIo);
 
@@ -257,6 +258,13 @@ void sendActionPanel(Request& request) {
           ",\"online\":" + String(relay.online ? "true" : "false") + "}";
     }
   }
+  // HTTP integrations: sent by the "run" command.
+  for (uint8_t index = 0; index < hooks.count(); ++index) {
+    if (!first) body += ',';
+    first = false;
+    body += "{\"id\":\"hook-" + String(hooks.idAt(index)) + "\",\"group\":\"hook\",\"name\":\"" + jsonEscape(hooks.nameAt(index)) +
+            "\",\"state\":false,\"online\":true}";
+  }
   body += "],\"events\":[";
   for (uint16_t index = 0; index < inputActions.eventCount(); ++index) {
     InputEventBinding event;
@@ -276,7 +284,7 @@ void sendActionPanel(Request& request) {
         "\",\"targetId\":\"" + String(action.targetId) + "\",\"enabled\":" +
         String(action.enabled ? "true" : "false") + ",\"value\":" + String(action.value) + "}";
   }
-  body += "],\"triggers\":[\"click\",\"doubleClick\",\"tripleClick\",\"longClick\",\"hold\"],\"commands\":[\"toggle\",\"on\",\"off\",\"setLevel\",\"stepUp\",\"stepDown\",\"preset\"]}";
+  body += "],\"triggers\":[\"click\",\"doubleClick\",\"tripleClick\",\"longClick\",\"hold\"],\"commands\":[\"toggle\",\"on\",\"off\",\"setLevel\",\"stepUp\",\"stepDown\",\"preset\",\"run\"]}";
   request.sendJson(200, body);
 }
 
@@ -363,6 +371,59 @@ bool zoneTargetExists(const String& target) {
   if (target.startsWith("light-")) return lights.find(static_cast<uint8_t>(target.substring(6).toInt()), light);
   if (target.startsWith("controller.input-")) { const long input = target.substring(17).toInt(); return input >= 1 && input <= kControllerInputCount; }
   return false;
+}
+
+String hookJson(const HttpHook& hook) {
+  return "{\"id\":" + String(hook.id) + ",\"name\":\"" + jsonEscape(hook.name) + "\",\"method\":\"" + HttpHookManager::methodName(hook.method) +
+         "\",\"url\":\"" + jsonEscape(hook.url) + "\",\"headers\":\"" + jsonEscape(hook.headers) + "\",\"body\":\"" +
+         HttpHookManager::bodyName(hook.body) + "\",\"bodyTemplate\":\"" + jsonEscape(hook.bodyTemplate) +
+         "\",\"insecure\":" + (hook.insecure ? "true" : "false") + "}";
+}
+
+void configureHookRoutes() {
+  using whisli::net::on;
+  const auto hookId = [](const Request& request) { const long id = request.arg("id").toInt(); return static_cast<uint8_t>(id >= 1 && id <= 255 ? id : 0); };
+  on("/api/v1/hooks", Method::Get, [](Request& request) {
+    String body = "{\"hooks\":[";
+    for (uint8_t index = 0; index < hooks.count(); ++index) {
+      HttpHook hook;
+      if (!hooks.load(hooks.idAt(index), hook)) continue;
+      if (body.endsWith("}")) body += ',';
+      body += hookJson(hook);
+    }
+    body += "],\"limits\":{\"url\":" + String(kMaxHookUrl) + ",\"headers\":" + String(kMaxHookHeaders) + ",\"body\":" + String(kMaxHookBody) + "}}";
+    request.sendJson(200, body);
+  });
+  on("/api/v1/hooks", Method::Post, [](Request& request) {
+    const uint8_t id = hooks.create(request.arg("name"));
+    if (!id) { request.sendJson(400, "{\"message\":\"Nie udało się dodać integracji.\"}"); return; }
+    request.sendJson(201, "{\"id\":" + String(id) + "}");
+  });
+  on("/api/v1/hooks/update", Method::Post, [hookId](Request& request) {
+    HttpHook hook;
+    hook.id = hookId(request);
+    hook.name = request.arg("name");
+    hook.url = request.arg("url");
+    hook.headers = request.arg("headers");
+    hook.bodyTemplate = request.arg("bodyTemplate");
+    hook.insecure = request.arg("insecure") == "true";
+    String reason = "Nieprawidłowa metoda albo rodzaj treści.";
+    if (!HttpHookManager::parseMethod(request.arg("method"), hook.method) || !HttpHookManager::parseBody(request.arg("body"), hook.body) || !hooks.update(hook, reason)) {
+      request.sendJson(400, "{\"message\":\"" + jsonEscape(reason) + "\"}");
+      return;
+    }
+    request.sendJson(200, "{\"message\":\"Zapisano.\"}");
+  });
+  on("/api/v1/hooks/remove", Method::Post, [hookId](Request& request) {
+    if (!hooks.remove(hookId(request))) { request.sendJson(404, "{\"message\":\"Nie ma takiej integracji.\"}"); return; }
+    request.sendJson(200, "{\"message\":\"Integracja usunięta.\"}");
+  });
+  // Sends now and answers with what came back; without the state lock, since it may take seconds.
+  on("/api/v1/hooks/test", Method::Post, [hookId](Request& request) {
+    const HookResult result = hooks.test(hookId(request), HookContext{});
+    request.sendJson(200, String("{\"sent\":") + (result.sent ? "true" : "false") + ",\"status\":" + String(result.status) +
+                          ",\"error\":\"" + jsonEscape(result.error) + "\",\"response\":\"" + jsonEscape(result.response) + "\"}");
+  }, StateAccess::None);
 }
 
 void configureZoneRoutes() {
@@ -525,6 +586,7 @@ void begin() {
   dmx.begin();
   lights.begin();
   zones.begin();
+  hooks.begin();
   presets.begin();
   inputActions.begin();
   controllerIo.setInputEventHandler(handleInputEvent, &inputActions);
@@ -600,6 +662,7 @@ void begin() {
   });
   configureZoneRoutes();
   configurePresetRoutes();
+  configureHookRoutes();
   on("/api/v1/test", Method::Get, [](Request& request) {
     request.sendJson(200, String("{\"chaos\":{\"running\":") + (chaos.running() ? "true" : "false") + ",\"restoring\":" +
                           (chaos.restoring() ? "true" : "false") + ",\"elapsedSeconds\":" + String(chaos.elapsedSeconds()) +

@@ -16,7 +16,7 @@ import { groupByZone, useZones, type ZonesApi } from "@/hooks/use-zones"
 import { useI18n, type TranslationKey } from "@/i18n"
 import { getJson, post, type ApiParams } from "@/lib/api"
 import { buttonSortKey, buttonSorts, compareButtons, gestureOrder, useRememberedSort, type ButtonSort } from "@/lib/sort"
-import { commandLabels, lightCommands, needsDimmable, presetLightKinds, switchCommands, triggerDescriptions, triggerLabels, valueCommands } from "@/lib/labels"
+import { commandLabels, hookCommand, lightCommands, needsDimmable, presetLightKinds, switchCommands, triggerDescriptions, triggerLabels, valueCommands } from "@/lib/labels"
 import type { ActionsFilter, ActionsHighlight } from "@/lib/route"
 import { cn } from "@/lib/utils"
 import type { ActionPanelData, LightPreset, PanelAction, PanelEvent, PanelInput, PanelTarget } from "@/types"
@@ -287,6 +287,7 @@ function ActionRow({ action, data, highlighted, mutations }: { action: PanelActi
   const ref = useScrollIntoView<HTMLDivElement>(highlighted)
   const { t } = useI18n()
   const target = data.targets.find(item => item.id === action.targetId)
+  const sendsHook = action.command === hookCommand
   const { busy } = mutations
   // A preset suits a light of its kind; with no light chosen yet, all are offered.
   const presets = useContext(PresetsContext)
@@ -325,17 +326,24 @@ function ActionRow({ action, data, highlighted, mutations }: { action: PanelActi
         aria-label={t("actionTarget")}
         disabled={busy}
         value={action.targetId}
-        placeholder={action.targetId && !target ? t("actionTargetUnavailable") : t("chooseActionTarget")}
+        placeholder={action.targetId && !target ? t("actionTargetUnavailable") : t(sendsHook ? "chooseActionHook" : "chooseActionTarget")}
         searchPlaceholder={t("searchActionTarget")}
         emptyText={t("noActionTargetMatch")}
-        groups={[
+        groups={sendsHook ? [{ label: t("actionTargetHooks"), items: data.targets.filter(item => item.group === "hook") }] : [
           { label: t("lights"), items: data.targets.filter(item => item.group === "light" && (!needsDimmable(action.command) || item.dimmable) &&
             (action.command !== "preset" || (chosenPreset ? presetKindFor(item.kind) === chosenPreset.kind : presetLightKinds.includes(item.kind ?? "")))) },
           { label: t("actionTargetRelays"), items: needsDimmable(action.command) ? [] : data.targets.filter(item => item.group === "relay") },
+          { label: t("actionTargetHooks"), items: needsDimmable(action.command) ? [] : data.targets.filter(item => item.group === "hook") },
         ]}
-        onValueChange={targetId => mutations.updateAction(action, { targetId })}
+        onValueChange={targetId => {
+          // A webhook is only called, and "call" only goes to one: switch the command with the target.
+          const toHook = data.targets.find(item => item.id === targetId)?.group === "hook"
+          if (toHook && action.command !== hookCommand) mutations.updateAction(action, { targetId, command: hookCommand })
+          else if (!toHook && action.command === hookCommand) mutations.updateAction(action, { targetId, command: "toggle" })
+          else mutations.updateAction(action, { targetId })
+        }}
       />
-      {target && <span className="whisli-muted mt-1 inline-flex items-center gap-1.5 text-[10px] leading-4">
+      {target && target.group !== "hook" && <span className="whisli-muted mt-1 inline-flex items-center gap-1.5 text-[10px] leading-4">
         {target.state ? <Power className="size-3" /> : <PowerOff className="size-3" />}
         {t("relayState")}: {target.state ? t("outputOn") : t("outputOff")}
         {!target.online && <> · {t("relayOffline")}</>}
@@ -347,11 +355,13 @@ function ActionRow({ action, data, highlighted, mutations }: { action: PanelActi
 
 /** The commands one action may use, given its target: light commands for DMX lights, presets for colour or white ones. */
 function commandGroups(target: PanelTarget | undefined): { label: TranslationKey; commands: string[] }[] {
+  if (target?.group === "hook") return [{ label: "actionGroupHttp", commands: [hookCommand] }]
   const light = !target || target.dimmable
   const commands = lightCommands.filter(command => command !== "preset" || !target || presetLightKinds.includes(target.kind ?? ""))
   return [
     { label: "actionGroupSwitch", commands: switchCommands },
     ...(light ? [{ label: "actionGroupBrightness" as TranslationKey, commands }] : []),
+    ...(target ? [] : [{ label: "actionGroupHttp" as TranslationKey, commands: [hookCommand] }]),
   ]
 }
 

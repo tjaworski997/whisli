@@ -4,6 +4,7 @@
 
 #include "whisli/app/button_input.hpp"
 #include "whisli/app/controller_io.hpp"
+#include "whisli/app/http_hooks.hpp"
 #include "whisli/app/lights.hpp"
 #include "whisli/app/modbus_relays.hpp"
 #include "whisli/app/presets.hpp"
@@ -23,6 +24,7 @@ enum class ActionCommand : uint8_t {
   RetiredHoldDim, RetiredHoldUp, RetiredHoldDown,  // dimming while held: removed, such actions do nothing
   SetLevel,                          // on at `value` percent
   SetPreset,                         // colour or white of preset `value`; brightness unchanged
+  RunHook,                           // sends an HTTP integration ("hook-<id>")
 };
 
 struct InputAction {
@@ -46,7 +48,7 @@ struct InputEventBinding {
 
 class InputActionManager {
  public:
-  InputActionManager(ControllerIo& controller, ModbusRelayManager& relays, LightManager& lights, PresetManager& presets);
+  InputActionManager(ControllerIo& controller, ModbusRelayManager& relays, LightManager& lights, PresetManager& presets, HttpHookManager& hooks);
 
   void begin();
   uint16_t count() const;
@@ -67,7 +69,7 @@ class InputActionManager {
   static bool parseTrigger(const String& value, ActionTrigger& output);
   static bool parseCommand(const String& value, ActionCommand& output);
   static bool usesValue(ActionCommand command) { return command == ActionCommand::StepUp || command == ActionCommand::StepDown || command == ActionCommand::SetLevel || command == ActionCommand::SetPreset; }
-  static bool dimmingOnly(ActionCommand command) { return command >= ActionCommand::StepUp; }
+  static bool dimmingOnly(ActionCommand command) { return command >= ActionCommand::StepUp && command <= ActionCommand::SetPreset; }
   static const char* triggerName(ActionTrigger trigger);
   static const char* commandName(ActionCommand command);
 
@@ -103,6 +105,7 @@ class InputActionManager {
   ModbusRelayManager& relays_;
   LightManager& lights_;
   PresetManager& presets_;
+  HttpHookManager& hooks_;
   // Tens of kilobytes: allocated, so they land in PSRAM rather than the scarce internal RAM.
   InputAction* actions_;
   uint16_t count_ = 0;

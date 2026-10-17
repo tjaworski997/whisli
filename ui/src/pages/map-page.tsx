@@ -1,7 +1,7 @@
 import "@xyflow/react/dist/style.css"
 
 import { Background, Controls, Handle, Position, ReactFlow, type Edge, type Node, type NodeChange, type NodeProps } from "@xyflow/react"
-import { ChevronsDown, ChevronsUp, Hand, Palette, Lightbulb, LightbulbOff, MapPin, MousePointerClick, SunMedium, Power, PowerOff, Repeat2, Timer, ToggleLeft, ToggleRight, type LucideIcon } from "lucide-react"
+import { ChevronsDown, ChevronsUp, Globe, Hand, Send, Palette, Lightbulb, LightbulbOff, MapPin, MousePointerClick, SunMedium, Power, PowerOff, Repeat2, Timer, ToggleLeft, ToggleRight, type LucideIcon } from "lucide-react"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
 import { kelvinSwatch, mixToKelvin } from "@/components/color-temperature-picker"
@@ -128,7 +128,7 @@ const gestureIcons: Record<string, { icon: LucideIcon; badge?: string }> = {
   hold: { icon: Hand },
 }
 const commandIcons: Record<string, LucideIcon> = {
-  toggle: Repeat2, on: Power, off: PowerOff, setLevel: SunMedium, stepUp: ChevronsUp, stepDown: ChevronsDown, preset: Palette,
+  toggle: Repeat2, on: Power, off: PowerOff, setLevel: SunMedium, stepUp: ChevronsUp, stepDown: ChevronsDown, preset: Palette, run: Send,
 }
 
 /** "controller.output-3" or "relay-1.output-3" → the device channel API call that flips it. */
@@ -214,7 +214,9 @@ function buildGraph(data: MapData, t: (key: TranslationKey) => string, zones: Zo
         link(gestureId, actionId)
         if (!action.targetId) continue
         const light = data.lights.find(item => `light-${item.id}` === action.targetId)
+        const hook = data.panel.targets.find(item => item.id === action.targetId && item.group === "hook")
         if (light) placeLight(light, rows.action - 1)
+        else if (hook) place(`tg:${hook.id}`, "target", { kind: "relay", title: hook.name, subtitle: "Webhook", icon: Globe, open: { page: "webhooks" } }, rows.action - 1)
         else placeRelay(action.targetId, rows.action - 1)
         link(actionId, `tg:${action.targetId}`)
       }

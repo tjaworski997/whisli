@@ -27,6 +27,7 @@ export const commandLabels: Record<string, TranslationKey> = {
   stepUp: "actionStepUp",
   stepDown: "actionStepDown",
   preset: "actionPreset",
+  run: "actionRun",
 }
 
 /** Commands grouped as the action editor offers them. Light ones need a DMX light; "preset" one with colour or white. */
@@ -35,6 +36,8 @@ export const lightCommands = ["setLevel", "stepUp", "stepDown", "preset"]
 /** Commands with a percentage (`value`); "preset" keeps a preset id there instead. */
 export const valueCommands = ["setLevel", "stepUp", "stepDown"]
 export const needsDimmable = (command: string) => lightCommands.includes(command)
+/** The one command for webhooks, and the only one they take. */
+export const hookCommand = "run"
 export const presetLightKinds = ["cct", "rgb", "rgbw"]
 
 /** "Rozjaśnij o 10%", "Barwa / kolor: Ciepła": a command's label with its percentage or preset. */
