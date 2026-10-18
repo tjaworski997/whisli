@@ -201,7 +201,8 @@ Co obsługuje dziś:
 - **Wejścia** — 8 wbudowanych DI z rozpoznawaniem gestów (klik, podwójny, potrójny,
   długi, przytrzymanie).
 - **Akcje** — gest przycisku → włącz / wyłącz / przełącz, ustaw jasność, rozjaśnij /
-  ściemnij o n %, ustaw preset barwy lub koloru; cel: światło albo przekaźnik.
+  ściemnij o n %, ustaw preset barwy lub koloru, wywołaj webhook; cel: światło,
+  przekaźnik albo webhook.
 - **Strefy i presety** — grupowanie świateł i przycisków w pomieszczenia; nazwane
   barwy bieli i kolory.
 - **MQTT / Home Assistant** — stany i sterowanie świateł, gesty przycisków jako
@@ -209,7 +210,13 @@ Co obsługuje dziś:
 - **Światła** — przełączane (przekaźnik), ściemniane (DMX, 1 kanał), barwa bieli
   CCT (2 kanały), kolor RGB (3) i RGBW (4). Dla każdego światła DMX: krzywa
   ściemniania i jasność minimalna.
-- **Urządzenia** — 8 wbudowanych wyjść DO oraz do 8 modułów przekaźników
+- **Webhooki** — zapytania HTTP/HTTPS (GET, POST, PUT, DELETE) wywoływane z akcji
+  przycisków: szablon treści (JSON, formularz, tekst) ze zmiennymi `{button}`,
+  `{gesture}`, `{zone}`, `{time}`…, nagłówki z tokenami, opcja ignorowania błędów
+  certyfikatu. Wysyłane w tle z limitem 5 s — przyciski nigdy na nie nie czekają.
+- **Notatki** — zwykły tekst o instalacji (sprzęt, okablowanie, adresy), zapisywany
+  na bieżąco i dołączany do kopii konfiguracji.
+- **Urządzenia** — 8 wbudowanych wyjść DO oraz do 16 modułów przekaźników
   Modbus RTU (Waveshare 16CH / 32CH lub profil własny).
 - **DMX512** — jedno uniwersum na UART0 (GPIO43) dla dekoderów LED i ściemniaczy
   230 V (np. S1-DR).
@@ -225,8 +232,9 @@ OTA i integracje zawsze im ustępują.
 src/main.cpp          składanie modułów; loop() tylko dla zadań w tle
 src/bootstrap/        sieć (Ethernet, Wi-Fi, punkt dostępowy), /setup, OTA
 src/net/              serwer HTTP (esp_http_server), logowanie, WebSocket
-src/app/              wejścia, akcje, światła, DMX, Modbus, API aplikacji
-src/system/           dziennik zdarzeń, blokada stanu
+src/app/              wejścia, akcje, światła, DMX, Modbus, MQTT, webhooki, API aplikacji
+src/system/           konfiguracja w plikach (LittleFS), kopia konfiguracji, notatki,
+                      dziennik zdarzeń, blokada stanu
 include/whisli/       interfejsy; system/task_priorities.hpp — kolejność zadań
 data/                 katalog profili urządzeń (źródło dla generatora C++)
 ui/                   panel React (shadcn/ui, Base UI, Tailwind, Lucide)
@@ -286,8 +294,9 @@ curl -u whisli:<hasło> -H "Content-Type: application/octet-stream" \
 
 **System → Kopia konfiguracji:** „Pobierz kopię” zapisuje urządzenia, wejścia,
 światła, akcje i strefy do pliku JSON; „Wczytaj z pliku” zastępuje nimi obecną
-konfigurację i restartuje sterownik. Ustawienia sieci i MQTT trafiają do pliku bez
-haseł; hasła Wi-Fi i MQTT tylko w bloku zaszyfrowanym hasłem kopii (AES-256-GCM).
+konfigurację i restartuje sterownik. Do kopii trafiają też presety, webhooki i notatki.
+Ustawienia sieci i MQTT trafiają do pliku bez haseł; hasła Wi-Fi i MQTT oraz nagłówki
+webhooków (tokeny) tylko w bloku zaszyfrowanym hasłem kopii (AES-256-GCM).
 Hasło panelu nie trafia do pliku nigdy.
 
 ```sh
