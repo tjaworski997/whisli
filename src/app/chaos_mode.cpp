@@ -69,14 +69,14 @@ void ChaosMode::tick() {
   if (static_cast<int32_t>(now - nextOutputAt_) >= 0) {
     const uint8_t channel = esp_random() % kControllerOutputCount;
     if (controller_.setOutput(channel, !controller_.snapshot().outputs[channel])) { ++switches_; changed = true; }
-    nextOutputAt_ = now + randomBetween(300, 1200);
+    nextOutputAt_ = now + randomBetween(200, 800);
   }
   for (uint8_t index = 0; index < moduleCount_; ++index) {
     Module& module = modules_[index];
     if (!module.channelCount || static_cast<int32_t>(now - module.nextAt) < 0) continue;
     const uint8_t channel = esp_random() % module.channelCount;
     if (relays_.setChannel(module.id, channel, !relays_.snapshot(module.id).channels[channel])) { ++switches_; changed = true; }
-    module.nextAt = now + randomBetween(400, 1600);
+    module.nextAt = now + randomBetween(300, 1100);
   }
   if (changed) notifyChange(kTopicDevices);
 }

@@ -80,7 +80,9 @@ Mapa pokazuje całą ścieżkę **przycisk → zdarzenie → akcja → światło
 
 ## Home Assistant i MQTT
 
-Whisli komunikuje się z Home Assistantem przez MQTT z obsługą **MQTT Discovery** — światła i przyciski pojawiają się w HA same. Sterownik publikuje swoją dostępność i stany świateł (z jasnością, barwą i kolorem), przyjmuje polecenia z HA i udostępnia zdarzenia przycisków automatyzacjom.
+Whisli komunikuje się z Home Assistantem przez MQTT z obsługą **MQTT Discovery** — światła i przyciski pojawiają się w HA same, jako jedno urządzenie o wybranej nazwie. Sterownik publikuje swoją dostępność i stany świateł (z jasnością, barwą i kolorem) i przyjmuje polecenia z HA. Każdy przycisk jest encją „zdarzenie” z ostatnim gestem i historią, a jego gesty są też wyzwalaczami urządzenia w automatyzacjach.
+
+Połączenie z brokerem można sprawdzić przyciskiem **Testuj połączenie** jeszcze przed zapisaniem ustawień. Po zmianie tematu głównego albo brokera sterownik sam usuwa swoje stare wiadomości, więc na brokerze nie zostają śmieci.
 
 ![MQTT](doc/screenshots/mqtt.png)
 
@@ -209,8 +211,10 @@ Co obsługuje dziś:
   przekaźnik albo webhook.
 - **Strefy i presety** — grupowanie świateł i przycisków w pomieszczenia; nazwane
   barwy bieli i kolory.
-- **MQTT / Home Assistant** — stany i sterowanie świateł, gesty przycisków jako
-  wyzwalacze, MQTT Discovery (tematy w **System → MQTT**).
+- **MQTT / Home Assistant** — MQTT Discovery: światła (stany i sterowanie), przyciski
+  jako encje zdarzenia i wyzwalacze urządzenia; nazwa urządzenia w HA do ustawienia,
+  test połączenia z brokerem, sprzątanie starych tematów po zmianie ustawień
+  (**System → MQTT**).
 - **Światła** — przełączane (przekaźnik), ściemniane (DMX, 1 kanał), barwa bieli
   CCT (2 kanały), kolor RGB (3) i RGBW (4). Dla każdego światła DMX: krzywa
   ściemniania i jasność minimalna.

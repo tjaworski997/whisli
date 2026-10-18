@@ -44,7 +44,8 @@ class MqttBridge {
   static void onEvent(void* context, esp_event_base_t base, int32_t id, void* data);
   void handleEvent(esp_mqtt_event_handle_t event);
   void start();
-  void stop();
+  // `forget`: clear our retained states and status first (the topics or the broker change).
+  void stop(bool forget = false);
   void applyCommand(const Command& command);
   void publishAll();
   void publishStates(bool force);

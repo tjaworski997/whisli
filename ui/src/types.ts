@@ -133,7 +133,7 @@ export type NetworkInfo = {
   ethernet: { connected: boolean; link: boolean; ip: string; gateway: string; mac: string }
   wifi: { connected: boolean; ssid: string; savedSsid: string; ip: string; rssi: number; mac: string }
   accessPoint: { enabled: boolean; active: boolean; fallback: boolean; ssid: string; ip: string; customPassword: boolean }
-  mqtt: { enabled: boolean; host: string; port: number; user: string; hasPassword: boolean; baseTopic: string; discovery: boolean; discoveryPrefix: string
+  mqtt: { enabled: boolean; host: string; port: number; user: string; hasPassword: boolean; baseTopic: string; discovery: boolean; discoveryPrefix: string; deviceName: string
     /** Live connection state of the client, with the reason when it failed. */
     status: "disabled" | "connecting" | "connected" | "error"; error: string }
 }

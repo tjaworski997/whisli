@@ -336,7 +336,7 @@ void LightManager::chaosTick() {
   for (uint8_t index = 0; index < kMaxLights; ++index) {
     const LightSnapshot& light = lights_[index];
     if (!light.configured || !isDmxKind(light.kind) || static_cast<int32_t>(now - chaos_.nextAt[index]) < 0) continue;
-    chaos_.nextAt[index] = now + 600 + esp_random() % 2000;
+    chaos_.nextAt[index] = now + 400 + esp_random() % 1400;
     // Mostly bright, sometimes dark for a moment.
     const uint8_t level = esp_random() % 6 == 0 ? 0 : static_cast<uint8_t>(70 + esp_random() % 186);
     // A fully saturated colour: one channel full, one off, one anywhere between (a hue on the colour wheel).

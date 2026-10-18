@@ -15,6 +15,7 @@ struct Settings {
   String baseTopic = "whisli";            // states and commands under <baseTopic>/...
   bool discovery = true;                  // announce lights and buttons to Home Assistant
   String discoveryPrefix = "homeassistant";
+  String deviceName;                      // how the controller is named in Home Assistant; empty: its own name
 };
 
 Settings load();
@@ -31,5 +32,11 @@ struct Status { State state = State::Disabled; String error; };
 void setStatus(State state, const char* error = "");
 Status status();
 const char* stateName(State state);
+
+// Tries `settings` with a separate, one-off client (its own id, so the running link stays up) and
+// reports whether the broker accepted it, within a few seconds. Blocks the caller meanwhile: call it
+// from an HTTP route without the state lock. One test at a time.
+struct TestResult { bool ok = false; String message; uint32_t elapsedMs = 0; };
+TestResult test(const Settings& settings);
 
 }  // namespace whisli::net::mqtt

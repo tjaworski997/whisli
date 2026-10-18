@@ -122,8 +122,11 @@ void MqttBridge::restart() {
   xSemaphoreTake(settingsLock_, portMAX_DELAY);
   if (changed) {
     settingsVersion_ = mqtt::settingsVersion();
-    stop();
-    settings_ = mqtt::load();
+    const mqtt::Settings next = mqtt::load();
+    // Moving to other topics or another broker: take our retained messages off the old place first,
+    // so no stale states or "offline" stay behind there.
+    stop(next.baseTopic != settings_.baseTopic || next.host != settings_.host || next.port != settings_.port);
+    settings_ = next;
     if (!settings_.enabled || settings_.host.isEmpty()) mqtt::setStatus(mqtt::State::Disabled);
   }
   if (!client_ && settings_.enabled && !settings_.host.isEmpty() && (ETH.hasIP() || WiFi.status() == WL_CONNECTED)) start();
@@ -165,10 +168,20 @@ void MqttBridge::start() {
   whisli::system::write(whisli::system::LogLevel::Info, "network", ("MQTT connecting to " + settings_.host).c_str());
 }
 
-void MqttBridge::stop() {
+void MqttBridge::stop(bool forget) {
   if (!client_) return;
   xSemaphoreTake(clientLock_, portMAX_DELAY);
-  if (connected_) esp_mqtt_client_publish(client_, availability_.c_str(), "offline", 0, 1, 1);
+  if (connected_ && forget) {
+    for (uint8_t slot = 0; slot < kMaxLights; ++slot) {
+      if (!lightStates_[slot]) continue;
+      const String topic = settings_.baseTopic + "/light/" + String(slot + 1) + "/state";
+      esp_mqtt_client_publish(client_, topic.c_str(), "", 0, 1, 1);  // empty retained: removed from the broker
+    }
+    esp_mqtt_client_publish(client_, availability_.c_str(), "", 0, 1, 1);
+    whisli::system::write(whisli::system::LogLevel::Info, "network", "MQTT: old topics cleared");
+  } else if (connected_) {
+    esp_mqtt_client_publish(client_, availability_.c_str(), "offline", 0, 1, 1);
+  }
   esp_mqtt_client_stop(client_);
   esp_mqtt_client_destroy(client_);
   client_ = nullptr;
@@ -290,7 +303,7 @@ void MqttBridge::publishAll() {
 
 String MqttBridge::deviceJson() const {
   const String ip = ETH.hasIP() ? ETH.localIP().toString() : WiFi.localIP().toString();
-  return "{\"identifiers\":[\"" + nodeId_ + "\"],\"name\":\"" + jsonEscape(controller_.snapshot().name) +
+  return "{\"identifiers\":[\"" + nodeId_ + "\"],\"name\":\"" + jsonEscape(settings_.deviceName.isEmpty() ? String(controller_.snapshot().name) : settings_.deviceName) +
          "\",\"manufacturer\":\"Whisli\",\"model\":\"Waveshare ESP32-S3-POE-ETH-8DI-8DO\",\"sw_version\":\"" +
          String(kFirmwareVersion) + "\",\"configuration_url\":\"http://" + ip + "/\"}";
 }
@@ -382,20 +395,32 @@ bool MqttBridge::publishDiscovery() {
       pending.push_back({settings_.discoveryPrefix + "/light/" + nodeId_ + "/light_" + String(slot + 1) + "/config", String(), -1, -1});
     }
   }
-  // Buttons: one device trigger per gesture of every used input, named after the input.
+  // Buttons: one device trigger per gesture of every used input (for automations), plus an event
+  // entity per input (visible among the entities, with the last gesture and its history). Both read
+  // the same action topic; the entity turns the plain gesture into the JSON it expects.
   const ControllerDevice controller = controller_.snapshot();
+  String eventTypes = "[";
+  for (const Gesture& gesture : kGestures) eventTypes += String(eventTypes.length() > 1 ? "," : "") + "\"" + gesture.trigger + "\"";
+  eventTypes += "]";
   for (uint8_t input = 0; input < kControllerInputCount; ++input) {
     String name = controller.inputNames[input];
     if (name.isEmpty()) name = "DI" + String(input < 9 ? "0" : "") + String(input + 1);
     const String signature = controller.inputUsed[input] ? name : String();
     if (signature == inputDiscovery_[input]) continue;
     const size_t gestures = sizeof(kGestures) / sizeof(kGestures[0]);
-    if (pending.size() + gestures > room) break;
+    if (pending.size() + gestures + 1 > room) break;
     inputDiscovery_[input] = signature;
+    const String actionTopic = settings_.baseTopic + "/input/" + String(input + 1) + "/action";
+    pending.push_back({settings_.discoveryPrefix + "/event/" + nodeId_ + "/input_" + String(input + 1) + "/config",
+                       signature.isEmpty() ? String() :
+                       "{\"name\":\"" + jsonEscape(name) + "\",\"unique_id\":\"" + nodeId_ + "_input_" + String(input + 1) +
+                       "\",\"state_topic\":\"" + actionTopic + "\",\"value_template\":\"{\\\"event_type\\\":\\\"{{ value }}\\\"}\"" +
+                       ",\"event_types\":" + eventTypes + ",\"device_class\":\"button\",\"availability_topic\":\"" + availability_ +
+                       "\",\"device\":" + device + "}", -1, input});
     for (const Gesture& gesture : kGestures) {
       const String topic = settings_.discoveryPrefix + "/device_automation/" + nodeId_ + "/input_" + String(input + 1) + "_" + gesture.trigger + "/config";
       const String config = signature.isEmpty() ? String() :
-          "{\"automation_type\":\"trigger\",\"topic\":\"" + settings_.baseTopic + "/input/" + String(input + 1) + "/action\",\"type\":\"" +
+          "{\"automation_type\":\"trigger\",\"topic\":\"" + actionTopic + "\",\"type\":\"" +
           gesture.type + "\",\"subtype\":\"" + jsonEscape(name) + "\",\"payload\":\"" + gesture.trigger + "\",\"device\":" + device + "}";
       pending.push_back({topic, config, -1, input});
     }

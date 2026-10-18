@@ -41,7 +41,8 @@ struct MergedKey { const char* space; const char* key; bool secret; };
 constexpr MergedKey kMergedKeys[] = {
   {"whisli-net", "apOn", false}, {"whisli-net", "ssid", true}, {"whisli-net", "password", true}, {"whisli-net", "apPass", true},
   {"whisli-mqtt", "enabled", false}, {"whisli-mqtt", "host", false}, {"whisli-mqtt", "port", false}, {"whisli-mqtt", "user", false},
-  {"whisli-mqtt", "topic", false}, {"whisli-mqtt", "disc", false}, {"whisli-mqtt", "discPrefix", false}, {"whisli-mqtt", "pass", true},
+  {"whisli-mqtt", "topic", false}, {"whisli-mqtt", "disc", false}, {"whisli-mqtt", "discPrefix", false}, {"whisli-mqtt", "device", false},
+  {"whisli-mqtt", "pass", true},
 };
 constexpr const char* kMergedNamespaces[] = {"whisli-net", "whisli-mqtt"};
 

@@ -69,7 +69,7 @@ Assistancie. Nie proponuj funkcji, które to rozmywają, bez pytania.
 | Po OTA | odpytuj `GET /api/v1/system` aż `firmware.version` = nowa wersja (restart ok. 10–20 s) |
 | Pierwsze wgranie USB | `./scripts/build_firmware.sh -t upload` (BOOT przy podłączaniu) |
 | Panel dev na żywym sterowniku | `cd ui && WHISLI_DEVICE_URL=http://192.168.128.141 WHISLI_DEVICE_AUTH=whisli:<hasło> npx vite --port 5199` |
-| Typecheck panelu | `cd ui && npx tsc --noEmit -p .` |
+| Typecheck panelu | `cd ui && npx tsc -b` (samo `tsc --noEmit -p .` nie sprawdza plików aplikacji) |
 
 - Sterownik testowy: Ethernet `192.168.128.141`, hasło panelu w środowisku dev to domyślne
   `whisli_gogo` (zapytaj, jeśli przestanie działać — nie zgaduj i nie resetuj).
@@ -236,7 +236,15 @@ sprawdź pamięć (PSRAM vs wewnętrzny RAM), format zapisu i MQTT.
 ### MQTT / Home Assistant (`mqtt_bridge`)
 
 - Tematy: `<base>/status` (LWT, retained), `<base>/light/<id>/state|set` (JSON schema),
-  `<base>/input/<n>/action`. Discovery jako jedno urządzenie `whisli_<mac>`.
+  `<base>/input/<n>/action` (gest jako zwykły tekst). Discovery jako jedno urządzenie
+  `whisli_<mac>`; jego nazwa w HA to `deviceName` z ustawień MQTT albo nazwa kontrolera.
+- Przycisk w HA = encja `event` (czyta `action` przez `value_template`) + wyzwalacze urządzenia
+  (`device_automation`) na każdy gest. Identyfikatory (`unique_id`) się nie zmieniają — nie ruszaj
+  ich, bo HA straci przypisania encji.
+- Zmiana tematu głównego albo brokera: `stop(true)` najpierw czyści stare retained (stany, status).
+  Samo wyłączenie MQTT zostawia „offline” i nie usuwa encji.
+- Test połączenia (`mqtt::test`, `POST /api/v1/network/mqtt/test`): osobny, jednorazowy klient z
+  własnym id, bez auto-reconnect, limit 6 s — działające połączenie z HA nie jest przerywane.
 - `loop()` tylko porównuje stany (hashe) i stosuje polecenia z kolejki; łączenie, restart klienta i
   wysyłka w workerze. Zmiana ustawień nigdy nie blokuje `loop()`.
 - Zły broker = błąd na stronie MQTT, nic więcej. Sprawdzaj to przy każdej zmianie mostu.

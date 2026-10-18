@@ -406,7 +406,7 @@ void sendNetwork(Request& request) {
   body += ",\"mqtt\":{\"enabled\":" + String(flag(mqtt.enabled)) + ",\"host\":\"" + jsonEscape(mqtt.host) + "\",\"port\":" + String(mqtt.port) +
           ",\"user\":\"" + jsonEscape(mqtt.user) + "\",\"hasPassword\":" + flag(!mqtt.password.isEmpty()) +
           ",\"baseTopic\":\"" + jsonEscape(mqtt.baseTopic) + "\",\"discovery\":" + flag(mqtt.discovery) +
-          ",\"discoveryPrefix\":\"" + jsonEscape(mqtt.discoveryPrefix) + "\",\"status\":\"" +
+          ",\"discoveryPrefix\":\"" + jsonEscape(mqtt.discoveryPrefix) + "\",\"deviceName\":\"" + jsonEscape(mqtt.deviceName) + "\",\"status\":\"" +
           whisli::net::mqtt::stateName(mqttStatus.state) + "\",\"error\":\"" + jsonEscape(mqttStatus.error) + "\"}}";
   request.sendJson(200, body);
 }
@@ -461,7 +461,11 @@ void configureNetworkRoutes() {
     settings.baseTopic = request.arg("baseTopic");
     settings.discovery = request.arg("discovery") == "true";
     settings.discoveryPrefix = request.arg("discoveryPrefix");
-    if (port < 1 || port > 65535 || (settings.enabled && settings.host.isEmpty()) || settings.host.length() > 64 ||
+    if (request.hasArg("deviceName")) {
+      settings.deviceName = request.arg("deviceName");
+      settings.deviceName.trim();
+    }
+    if (settings.deviceName.length() > 64 || port < 1 || port > 65535 || (settings.enabled && settings.host.isEmpty()) || settings.host.length() > 64 ||
         settings.user.length() > 64 || settings.password.length() > 64 ||
         !whisli::net::mqtt::validTopic(settings.baseTopic) || !whisli::net::mqtt::validTopic(settings.discoveryPrefix)) {
       request.sendJson(400, "{\"message\":\"Sprawdź serwer, port (1–65535) i tematy (bez # i +, bez pustych poziomów).\"}");
@@ -471,6 +475,25 @@ void configureNetworkRoutes() {
     if (!whisli::net::mqtt::save(settings)) { request.sendJson(500, "{\"message\":\"Nie udało się zapisać ustawień MQTT.\"}"); return; }
     whisli::system::write(whisli::system::LogLevel::Info, "network", "MQTT settings saved");
     request.sendJson(200, "{\"message\":\"Ustawienia MQTT zapisane.\"}");
+  }, StateAccess::None);
+  // Tries the settings from the form (not saved yet); an empty password means the saved one.
+  on("/api/v1/network/mqtt/test", Method::Post, [](Request& request) {
+    auto settings = whisli::net::mqtt::load();
+    const long port = request.arg("port").toInt();
+    settings.host = request.arg("host");
+    settings.host.trim();
+    settings.user = request.arg("user");
+    if (request.hasArg("password")) settings.password = request.arg("password");
+    if (request.arg("clearPassword") == "true") settings.password = "";
+    if (port < 1 || port > 65535 || settings.host.isEmpty() || settings.host.length() > 64 || settings.user.length() > 64 || settings.password.length() > 64) {
+      request.sendJson(400, "{\"message\":\"Sprawdź serwer i port (1–65535).\"}");
+      return;
+    }
+    settings.port = static_cast<uint16_t>(port);
+    const auto result = whisli::net::mqtt::test(settings);
+    whisli::system::write(result.ok ? whisli::system::LogLevel::Info : whisli::system::LogLevel::Warning, "network",
+                          (String("MQTT test ") + settings.host + ": " + (result.ok ? "connected" : "failed")).c_str());
+    request.sendJson(result.ok ? 200 : 502, "{\"message\":\"" + whisli::net::jsonEscape(result.message) + "\",\"elapsedMs\":" + String(result.elapsedMs) + "}");
   }, StateAccess::None);
 }
 

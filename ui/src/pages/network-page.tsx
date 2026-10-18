@@ -1,5 +1,5 @@
-import { Cable, Lock, RadioTower, RefreshCw, Wifi, WifiOff } from "lucide-react"
-import { useState, type FormEvent } from "react"
+import { Cable, Lock, PlugZap, RadioTower, RefreshCw, Wifi, WifiOff } from "lucide-react"
+import { useEffect, useState, type FormEvent } from "react"
 
 import { ErrorText, Field, Muted, PageHeader, Section } from "@/components/page"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,7 @@ import { usePolling } from "@/hooks/use-polling"
 import { useI18n, type TranslationKey } from "@/i18n"
 import { getJson, post, type ApiParams } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import type { NetworkInfo, WifiNetwork } from "@/types"
+import type { Device, NetworkInfo, WifiNetwork } from "@/types"
 
 const sleep = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms))
 /** Rough signal quality from RSSI: -100 dBm and below is 0 %, -50 dBm and above 100 %. */
@@ -228,12 +228,18 @@ function MqttSection({ info, onChanged }: { info: NetworkInfo; onChanged: () => 
   const [form, setForm] = useState({ ...mqtt, port: String(mqtt.port), password: "", clearPassword: false })
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [testing, setTesting] = useState(false)
+  // The controller's own name: what Home Assistant shows while no other name is set here.
+  const [controllerName, setControllerName] = useState("")
+  useEffect(() => {
+    getJson<{ devices: Device[] }>("/api/v1/devices").then(data => setControllerName(data.devices.find(device => device.kind === "controller")?.name ?? "")).catch(() => {})
+  }, [])
   const set = (patch: Partial<typeof form>) => { setForm(current => ({ ...current, ...patch })); setResult(null) }
 
   async function save(event: FormEvent) {
     event.preventDefault()
     setBusy(true)
-    const params: ApiParams = { enabled: form.enabled, host: form.host.trim(), port: form.port, user: form.user, baseTopic: form.baseTopic.trim(), discovery: form.discovery, discoveryPrefix: form.discoveryPrefix.trim() }
+    const params: ApiParams = { enabled: form.enabled, host: form.host.trim(), port: form.port, user: form.user, baseTopic: form.baseTopic.trim(), discovery: form.discovery, discoveryPrefix: form.discoveryPrefix.trim(), deviceName: form.deviceName.trim() }
     if (form.password) params.password = form.password  // only a new password is sent
     if (form.clearPassword) params.clearPassword = true
     const response = await post("/api/v1/network/mqtt", params)
@@ -243,10 +249,23 @@ function MqttSection({ info, onChanged }: { info: NetworkInfo; onChanged: () => 
     onChanged()
   }
 
-  const text = (key: "host" | "user" | "baseTopic" | "discoveryPrefix", label: TranslationKey, extra: Partial<{ placeholder: string; required: boolean }> = {}) =>
+  // Tries what is in the form, saved or not; an empty password field means the saved password.
+  async function testConnection() {
+    setTesting(true)
+    setResult(null)
+    const params: ApiParams = { host: form.host.trim(), port: form.port, user: form.user }
+    if (form.password) params.password = form.password
+    if (form.clearPassword) params.clearPassword = true
+    const response = await post("/api/v1/network/mqtt/test", params)
+    setTesting(false)
+    const elapsed = typeof response.data.elapsedMs === "number" ? response.data.elapsedMs : 0
+    setResult({ ok: response.ok, message: response.ok ? t("mqttTestOk", { ms: elapsed }) : response.message || t("mqttTestError") })
+  }
+
+  const text = (key: "host" | "user" | "baseTopic" | "discoveryPrefix" | "deviceName", label: TranslationKey, extra: Partial<{ placeholder: string; required: boolean }> = {}) =>
     <Field label={t(label)}><input className="whisli-input h-9" value={form[key]} maxLength={64} autoComplete="off" onChange={event => set({ [key]: event.currentTarget.value })} {...extra} /></Field>
 
-  return <Section bordered className="mt-6 py-6" title={t("networkMqttConnection")}>
+  return <Section bordered className="mt-6 py-6" title={t("networkMqttConnection")} description={t("networkMqttConnectionHint")}>
     <form onSubmit={event => void save(event)} className="mt-4 grid gap-4">
       <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.enabled} onCheckedChange={next => set({ enabled: next === true })} />{t("networkMqttEnabled")}</label>
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem]">
@@ -262,12 +281,26 @@ function MqttSection({ info, onChanged }: { info: NetworkInfo; onChanged: () => 
       </div>
       {mqtt.hasPassword && <label className="whisli-muted -mt-2 flex items-center gap-2 text-xs"><Checkbox checked={form.clearPassword} onCheckedChange={next => set({ clearPassword: next === true, password: "" })} />{t("networkMqttClearPassword")}</label>}
       <div className="grid gap-3 sm:grid-cols-2">
-        {text("baseTopic", "networkMqttTopic", { placeholder: "whisli", required: true })}
-        {text("discoveryPrefix", "networkMqttDiscoveryPrefix", { placeholder: "homeassistant", required: true })}
+        <div className="grid gap-1.5">
+          {text("baseTopic", "networkMqttTopic", { placeholder: "whisli", required: true })}
+          <Muted className="text-xs">{t("networkMqttTopicHint", { topic: form.baseTopic.trim() || "whisli" })}</Muted>
+        </div>
+        <div className="grid gap-1.5">
+          {text("discoveryPrefix", "networkMqttDiscoveryPrefix", { placeholder: "homeassistant", required: true })}
+          <Muted className="text-xs">{t("networkMqttDiscoveryPrefixHint")}</Muted>
+        </div>
       </div>
       <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.discovery} onCheckedChange={next => set({ discovery: next === true })} />{t("networkMqttDiscovery")}</label>
+      <div className="grid gap-1.5 sm:max-w-md">
+        {text("deviceName", "networkMqttDeviceName", { placeholder: controllerName || "Whisli Controller" })}
+        <p className="text-xs">{t("networkMqttDeviceNameShown")} <span className="font-medium">„{form.deviceName.trim() || controllerName || "Whisli Controller"}”</span></p>
+        <Muted className="text-xs">{t("networkMqttDeviceNameHint")}</Muted>
+      </div>
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="submit" variant="outline" disabled={busy}>{t(busy ? "saving" : "save")}</Button>
+        <Button type="submit" variant="outline" disabled={busy || testing}>{t(busy ? "saving" : "save")}</Button>
+        <Button type="button" variant="ghost" disabled={busy || testing || !form.host.trim()} onClick={() => void testConnection()}>
+          <PlugZap className={cn("size-4", testing && "animate-pulse")} />{t(testing ? "mqttTesting" : "mqttTest")}
+        </Button>
         {result && <span role="status" className={cn("text-sm", result.ok ? "whisli-status-ok" : "whisli-status-error")}>{result.message}</span>}
       </div>
     </form>
