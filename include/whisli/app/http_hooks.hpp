@@ -36,7 +36,7 @@ struct HttpHook {
 
 // Where a request came from: fills the variables.
 struct HookContext {
-  String inputId;  // "controller.input-1"; empty for a test from the integrations page
+  String inputId;  // "controller.input-1"; empty for a test from the webhooks page
   String gesture;  // "click", "doubleClick", …
 };
 
@@ -47,7 +47,7 @@ struct HookResult {
   String response;    // the start of the response body
 };
 
-// HTTP integrations. Only ids, names and methods stay in memory; the full requests are read from
+// Webhooks (HTTP integrations). Only ids, names and methods stay in memory; the full requests are read from
 // files when sent, so many of them cost no RAM. Sending happens in a low-priority task with a
 // timeout: a slow or unreachable server never holds up buttons and lights.
 class HttpHookManager {

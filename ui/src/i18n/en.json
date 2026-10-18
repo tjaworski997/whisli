@@ -547,7 +547,6 @@
   "hookSaveError": "Could not save the webhook.",
   "hookName": "Webhook name",
   "hookNoUrl": "no address",
-  "hookUses": "{count} actions",
   "hookTesting": "Sending…",
   "hookTestFailed": "The test failed.",
   "hookTestStatus": "Response: HTTP {status}",

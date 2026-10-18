@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { MessageBox } from "@/components/ui/message-box"
 import { useI18n, type TranslationKey } from "@/i18n"
 import { getJson, post } from "@/lib/api"
+import { actionCountKey } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { ActionPanelData, HttpHook, HttpHookResult } from "@/types"
 
@@ -183,7 +184,7 @@ function HookRow({ hook, limits, expanded, focused, uses, onToggle, onFocused, o
         <p className="whisli-muted truncate font-mono text-xs">
           <span className="whisli-line mr-2 rounded border px-1 py-px text-[10px]">{hook.method}</span>
           {hook.url || t("hookNoUrl")}
-          {uses > 0 && <span className="ml-2 font-sans">· {t("hookUses", { count: uses })}</span>}
+          {uses > 0 && <span className="ml-2 font-sans">· {t(actionCountKey(uses), { count: uses })}</span>}
         </p>
       </div>
       <Button variant="outline" disabled={testing || !draft.url} onClick={() => void test()}><Play className="size-3.5" />{testing ? t("hookTesting") : t("testAction")}</Button>

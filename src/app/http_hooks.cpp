@@ -220,11 +220,11 @@ bool HttpHookManager::update(const HttpHook& requested, String& reason) {
   HttpHook hook = requested;
   hook.name = clean(hook.name);
   hook.url = clean(hook.url);
-  if (!exists(hook.id)) { reason = "Nie ma takiej integracji."; return false; }
+  if (!exists(hook.id)) { reason = "Nie ma takiego webhooka."; return false; }
   if (hook.name.isEmpty() || hook.name.length() > 48) { reason = "Nazwa musi mieć od 1 do 48 znaków."; return false; }
   if (!hook.url.isEmpty() && !hook.url.startsWith("http://") && !hook.url.startsWith("https://")) { reason = "Adres musi zaczynać się od http:// albo https://."; return false; }
   if (hook.url.length() > kMaxHookUrl || hook.headers.length() > kMaxHookHeaders || hook.bodyTemplate.length() > kMaxHookBody) { reason = "Adres, nagłówki albo treść są za długie."; return false; }
-  if (!save(hook)) { reason = "Nie udało się zapisać integracji."; return false; }
+  if (!save(hook)) { reason = "Nie udało się zapisać webhooka."; return false; }
   for (Entry& entry : index_) if (entry.id == hook.id) entry.name = hook.name;
   return true;
 }
@@ -255,7 +255,7 @@ bool HttpHookManager::trigger(uint8_t id, const HookContext& context) {
 
 HookResult HttpHookManager::test(uint8_t id, const HookContext& context) {
   HttpHook hook;
-  if (!load(id, hook)) return HookResult{false, 0, "Nie ma takiej integracji.", String()};
+  if (!load(id, hook)) return HookResult{false, 0, "Nie ma takiego webhooka.", String()};
   return send(hook, context);
 }
 

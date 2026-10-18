@@ -258,7 +258,7 @@ void sendActionPanel(Request& request) {
           ",\"online\":" + String(relay.online ? "true" : "false") + "}";
     }
   }
-  // HTTP integrations: sent by the "run" command.
+  // Webhooks: called by the "run" command.
   for (uint8_t index = 0; index < hooks.count(); ++index) {
     if (!first) body += ',';
     first = false;
@@ -396,7 +396,7 @@ void configureHookRoutes() {
   });
   on("/api/v1/hooks", Method::Post, [](Request& request) {
     const uint8_t id = hooks.create(request.arg("name"));
-    if (!id) { request.sendJson(400, "{\"message\":\"Nie udało się dodać integracji.\"}"); return; }
+    if (!id) { request.sendJson(400, "{\"message\":\"Nie udało się dodać webhooka.\"}"); return; }
     request.sendJson(201, "{\"id\":" + String(id) + "}");
   });
   on("/api/v1/hooks/update", Method::Post, [hookId](Request& request) {
@@ -415,8 +415,8 @@ void configureHookRoutes() {
     request.sendJson(200, "{\"message\":\"Zapisano.\"}");
   });
   on("/api/v1/hooks/remove", Method::Post, [hookId](Request& request) {
-    if (!hooks.remove(hookId(request))) { request.sendJson(404, "{\"message\":\"Nie ma takiej integracji.\"}"); return; }
-    request.sendJson(200, "{\"message\":\"Integracja usunięta.\"}");
+    if (!hooks.remove(hookId(request))) { request.sendJson(404, "{\"message\":\"Nie ma takiego webhooka.\"}"); return; }
+    request.sendJson(200, "{\"message\":\"Webhook usunięty.\"}");
   });
   // Sends now and answers with what came back; without the state lock, since it may take seconds.
   on("/api/v1/hooks/test", Method::Post, [hookId](Request& request) {

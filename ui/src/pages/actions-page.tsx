@@ -16,6 +16,7 @@ import { groupByZone, useZones, type ZonesApi } from "@/hooks/use-zones"
 import { useI18n, type TranslationKey } from "@/i18n"
 import { getJson, post, type ApiParams } from "@/lib/api"
 import { buttonSortKey, buttonSorts, compareButtons, gestureOrder, useRememberedSort, type ButtonSort } from "@/lib/sort"
+import { actionCountKey } from "@/lib/format"
 import { commandLabels, hookCommand, lightCommands, needsDimmable, presetLightKinds, switchCommands, triggerDescriptions, triggerLabels, valueCommands } from "@/lib/labels"
 import type { ActionsFilter, ActionsHighlight } from "@/lib/route"
 import { cn } from "@/lib/utils"
@@ -220,13 +221,6 @@ const expandedKey = "whisli-actions-expanded"
 const buttonSortOptions: { value: ButtonSort; label: TranslationKey }[] = [
   { value: "zone", label: "sortZoneInput" }, { value: "name", label: "sortName" }, { value: "input", label: "sortInput" },
 ]
-
-/** "1 akcja", "3 akcje", "5 akcji": Polish has three plural forms, English two. */
-function actionCountKey(count: number): TranslationKey {
-  if (count === 1) return "actionCountOne"
-  const lastTwo = count % 100
-  return count % 10 >= 2 && count % 10 <= 4 && (lastTwo < 12 || lastTwo > 14) ? "actionCountFew" : "actionCountMany"
-}
 
 function InputSection({ input, data, zones, highlight, expanded, onToggle, mutations, onAddEvents }: { input: PanelInput; data: ActionPanelData; zones: ZonesApi; highlight?: ActionsHighlight; expanded: boolean; onToggle?: () => void; mutations: Mutations; onAddEvents: () => void }) {
   const { t } = useI18n()

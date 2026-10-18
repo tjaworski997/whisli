@@ -1,3 +1,5 @@
+import type { TranslationKey } from "@/i18n"
+
 const pad = (value: number) => String(value).padStart(2, "0")
 
 export function formatUptime(seconds: number) {
@@ -17,4 +19,11 @@ export function channelLabel(prefix: string, index: number) {
 
 export function fileSizeKb(file: File) {
   return (file.size / 1024).toFixed(1)
+}
+
+/** "1 akcja", "3 akcje", "5 akcji": Polish has three plural forms, English two. */
+export function actionCountKey(count: number): TranslationKey {
+  if (count === 1) return "actionCountOne"
+  const lastTwo = count % 100
+  return count % 10 >= 2 && count % 10 <= 4 && (lastTwo < 12 || lastTwo > 14) ? "actionCountFew" : "actionCountMany"
 }

@@ -68,6 +68,10 @@ Zwykły przycisk monostabilny nie jest przypisany na stałe do obwodu. Generuje 
 |---|---|
 | ![Akcje](doc/screenshots/actions.png) | ![Edycja akcji](doc/screenshots/actions-edit.png) |
 
+Akcja może też wywołać **webhook** — zapytanie HTTP do Home Assistanta, Node-RED albo dowolnego serwera. Treść składa się z szablonu ze zmiennymi (który przycisk, jaki gest, strefa, czas), a podgląd od razu pokazuje, co zostanie wysłane. Zapytania idą w tle, więc wolny lub niedostępny serwer nigdy nie opóźnia przycisków.
+
+![Webhooki](doc/screenshots/webhooks.png)
+
 Mapa pokazuje całą ścieżkę **przycisk → zdarzenie → akcja → światło** i podświetla ją na żywo przy fizycznym naciśnięciu, co ułatwia diagnostykę. Nazwane presety barw i kolorów działają w ręcznym sterowaniu i w akcjach. Nie jest to mechanizm scen — sceny i rozbudowane automatyzacje pozostają po stronie Home Assistanta.
 
 | | |

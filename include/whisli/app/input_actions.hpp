@@ -24,7 +24,7 @@ enum class ActionCommand : uint8_t {
   RetiredHoldDim, RetiredHoldUp, RetiredHoldDown,  // dimming while held: removed, such actions do nothing
   SetLevel,                          // on at `value` percent
   SetPreset,                         // colour or white of preset `value`; brightness unchanged
-  RunHook,                           // sends an HTTP integration ("hook-<id>")
+  RunHook,                           // calls a webhook ("hook-<id>")
 };
 
 struct InputAction {

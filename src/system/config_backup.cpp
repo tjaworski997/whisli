@@ -19,7 +19,7 @@ namespace {
 
 constexpr int kFormat = 1;
 constexpr const char* kNamespaces[] = {"whisli-board", "whisli-relay", "whisli-lights", "whisli-actions", "whisli-zones", "whisli-presets", "whisli-hooks"};
-// File namespaces that are secret as a whole (HTTP integration headers with tokens): only in the
+// File namespaces that are secret as a whole (webhook headers with tokens): only in the
 // encrypted part, and replaced only when that part is read.
 constexpr const char* kSecretFileNamespaces[] = {"whisli-hookauth"};
 
