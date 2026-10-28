@@ -1,335 +1,339 @@
+<div align="right"><a href="README.pl.md">Polski</a> · <b>English</b></div>
+
 # Whisli
 
-**Whisli** to autonomiczny sterownik oświetlenia domowego oparty na ESP32, Modbus RTU, DMX512 i MQTT.
+**Whisli** is a standalone home lighting controller built on ESP32, Modbus RTU, DMX512 and MQTT.
 
-Projekt jest przeznaczony przede wszystkim do instalacji elektrycznych w topologii gwiazdy, w których obwody oświetleniowe i przewody od przycisków trafiają do centralnej rozdzielnicy.
+It is meant mainly for electrical installations in a star topology, where the lighting circuits and the wires from the wall buttons all run to a central distribution board.
 
-Sterownik obsługuje wejścia cyfrowe, przekaźniki, ściemniacze DMX, logikę przycisków i komunikację z Home Assistantem. Konfiguracja i diagnostyka są dostępne przez wbudowany interfejs WWW.
+The controller handles digital inputs, relays, DMX dimmers, button logic and communication with Home Assistant. Configuration and diagnostics are available in the built-in web interface.
 
-**Podstawowe sterowanie oświetleniem działa lokalnie — bez Home Assistanta, internetu i usług chmurowych.**
+**Basic lighting control works locally — without Home Assistant, the internet or cloud services.**
 
-Projekt jest rozwijany jako open source.
+The project is developed as open source.
 
-![Whisli — ekran startowy](doc/screenshots/start.png)
+> The screenshots show the Polish version of the panel; it is available in English as well.
 
-## Skąd pomysł?
+![Whisli — start screen](doc/screenshots/start.png)
 
-Na co dzień korzystam z Home Assistanta. To świetne narzędzie do automatyki domowej, ale od dłuższego czasu przeszkadzało mi rozproszone sterowanie oświetleniem.
+## Where the idea came from
 
-Shelly w jednej puszce, przekaźnik Zigbee w drugiej, osobny sterownik LED, kolejne integracje, konfiguracje i aktualizacje firmware. Wszystko działa, ale przy większej liczbie punktów świetlnych powstaje spory zbiór niezależnych urządzeń.
+I use Home Assistant every day. It is a great home automation tool, but for a long time the scattered lighting control bothered me.
 
-Niedawno trafiła mi się instalacja elektryczna, którą można stosunkowo łatwo przerobić na topologię gwiazdy. To dobra okazja, żeby spróbować centralnego sterowania oświetleniem.
+A Shelly in one wall box, a Zigbee relay in another, a separate LED controller, more integrations, configurations and firmware updates. It all works, but with many light points you end up with a large collection of independent devices.
 
-Założenia były następujące:
+Recently I got an electrical installation that can be converted to a star topology fairly easily. A good chance to try central lighting control.
 
-- Jeden sterownik zarządzający oświetleniem całego domu.
-- Zwykłe przyciski monostabilne zamiast inteligentnych włączników.
-- Obsługa ON/OFF, ściemniania, CCT i RGB/RGBW.
-- Konfigurowalne zdarzenia przycisków i przypisane do nich akcje.
-- Autonomiczne działanie, niezależne od Home Assistanta.
-- Dwukierunkowa integracja z HA przez MQTT.
-- Konfiguracja przez przeglądarkę, bez modyfikowania firmware.
-- Wykorzystanie ogólnodostępnych modułów.
+The goals were:
 
-Nie chciałem pisać alternatywy dla Home Assistanta. Chodziło o wydzielenie podstawowej obsługi oświetlenia do osobnego urządzenia.
+- One controller managing the lighting of the whole house.
+- Ordinary momentary push buttons instead of smart switches.
+- ON/OFF, dimming, CCT and RGB/RGBW.
+- Configurable button events with actions assigned to them.
+- Standalone operation, independent of Home Assistant.
+- Two-way integration with HA over MQTT.
+- Configuration in the browser, without changing the firmware.
+- Widely available modules.
 
-## Dlaczego własny sterownik?
+I did not want to write an alternative to Home Assistant. The point was to move basic lighting control into a separate device.
 
-Na rynku jest sporo gotowych rozwiązań: PLC, KNX, moduły przekaźnikowe i dedykowane sterowniki automatyki budynkowej.
+## Why my own controller?
 
-Zrobiłem niewielkie rozpoznanie dostępnych urządzeń. Ponieważ lubię programować i eksperymentować z elektroniką, postanowiłem sprawdzić, ile da się uzyskać z ogólnodostępnych modułów, bez projektowania własnej elektroniki.
+There are plenty of ready-made solutions: PLCs, KNX, relay modules and dedicated building automation controllers.
 
-| Technologia | Zastosowanie |
+I looked around a little. Since I enjoy programming and experimenting with electronics, I decided to see how far widely available modules can go, without designing my own electronics.
+
+| Technology | Used for |
 |---|---|
-| ESP32-S3 | Główny sterownik |
-| Modbus RTU / RS485 | Moduły wejściowe i przekaźnikowe |
-| DMX512 | Sterowanie jasnością i barwą oświetlenia |
-| MQTT | Dwukierunkowa komunikacja z Home Assistantem |
-| Ethernet / PoE | Komunikacja sieciowa i zasilanie sterownika |
-| Web UI | Konfiguracja i diagnostyka |
+| ESP32-S3 | Main controller |
+| Modbus RTU / RS485 | Input and relay modules |
+| DMX512 | Brightness and colour control |
+| MQTT | Two-way communication with Home Assistant |
+| Ethernet / PoE | Networking and powering the controller |
+| Web UI | Configuration and diagnostics |
 
-Wybór DMX512 wynikał z dostępności wielokanałowych sterowników LED i ściemniaczy TRIAC obsługujących ten protokół.
+DMX512 was chosen because multi-channel LED controllers and TRIAC dimmers with this protocol are easy to get.
 
-Nie twierdzę, że jest to rozwiązanie lepsze od KNX. Po prostu odpowiada wymaganiom tej instalacji.
+I do not claim it is better than KNX. It simply meets the needs of this installation.
 
-## Jak to działa
+## How it works
 
-Pierwotnie planowałem niewielki firmware obsługujący wejścia, przekaźniki i kilka podstawowych akcji. Projekt trochę się rozrósł — większość funkcji z pierwotnego zakresu jest już zaimplementowana.
+At first I planned a small firmware handling inputs, relays and a few basic actions. The project grew a bit — most of the features from the original scope are already implemented.
 
-Podstawą jest **logiczny punkt świetlny**: ma nazwę, typ (ON/OFF, DIM, CCT, RGB, RGBW), strefę i powiązanie z fizycznym wyjściem — przekaźnikiem albo kanałami DMX. Akcje operują na światłach, a nie na numerach przekaźników czy adresach DMX, więc zmiana podłączenia nie wymaga przebudowy konfiguracji przycisków.
+The core is a **logical light**: it has a name, a type (ON/OFF, DIM, CCT, RGB, RGBW), a zone and a link to a physical output — a relay or DMX channels. Actions work on lights, not on relay numbers or DMX addresses, so rewiring does not require rebuilding the button configuration.
 
 | | |
 |---|---|
-| ![Światła](doc/screenshots/lights.png) | ![Jasność i kolor](doc/screenshots/light-control.png) |
+| ![Lights](doc/screenshots/lights.png) | ![Brightness and colour](doc/screenshots/light-control.png) |
 
-Zwykły przycisk monostabilny nie jest przypisany na stałe do obwodu. Generuje zdarzenia — kliknięcie, podwójne, długie, przytrzymanie — a do każdego można przypisać kilka akcji: włącz, wyłącz, przełącz, ustaw jasność, rozjaśniaj / ściemniaj, ustaw barwę lub kolor. Wszystko konfiguruje się przez WWW, a akcje wykonują się lokalnie na ESP32.
-
-| | |
-|---|---|
-| ![Akcje](doc/screenshots/actions.png) | ![Edycja akcji](doc/screenshots/actions-edit.png) |
-
-Akcja może też wywołać **webhook** — zapytanie HTTP do Home Assistanta, Node-RED albo dowolnego serwera. Treść składa się z szablonu ze zmiennymi (który przycisk, jaki gest, strefa, czas), a podgląd od razu pokazuje, co zostanie wysłane. Zapytania idą w tle, więc wolny lub niedostępny serwer nigdy nie opóźnia przycisków.
-
-![Webhooki](doc/screenshots/webhooks.png)
-
-Mapa pokazuje całą ścieżkę **przycisk → zdarzenie → akcja → światło** i podświetla ją na żywo przy fizycznym naciśnięciu, co ułatwia diagnostykę. Nazwane presety barw i kolorów działają w ręcznym sterowaniu i w akcjach. Nie jest to mechanizm scen — sceny i rozbudowane automatyzacje pozostają po stronie Home Assistanta.
+An ordinary momentary button is not tied to a circuit. It produces events — click, double click, long press, hold — and each can have several actions: on, off, toggle, set brightness, brighten / dim, set the white tone or colour. Everything is configured in the browser, and the actions run locally on the ESP32.
 
 | | |
 |---|---|
-| ![Mapa](doc/screenshots/map.png) | ![Presety](doc/screenshots/presets.png) |
+| ![Actions](doc/screenshots/actions.png) | ![Editing an action](doc/screenshots/actions-edit.png) |
 
-## Home Assistant i MQTT
+An action can also call a **webhook** — an HTTP request to Home Assistant, Node-RED or any server. The body is a template with variables (which button, which gesture, zone, time), and a preview shows right away what will be sent. Requests go out in the background, so a slow or unreachable server never delays the buttons.
 
-Whisli komunikuje się z Home Assistantem przez MQTT z obsługą **MQTT Discovery** — światła i przyciski pojawiają się w HA same, jako jedno urządzenie o wybranej nazwie. Sterownik publikuje swoją dostępność i stany świateł (z jasnością, barwą i kolorem) i przyjmuje polecenia z HA. Każdy przycisk jest encją „zdarzenie” z ostatnim gestem i historią, a jego gesty są też wyzwalaczami urządzenia w automatyzacjach.
+![Webhooks](doc/screenshots/webhooks.png)
 
-Połączenie z brokerem można sprawdzić przyciskiem **Testuj połączenie** jeszcze przed zapisaniem ustawień. Po zmianie tematu głównego albo brokera sterownik sam usuwa swoje stare wiadomości, więc na brokerze nie zostają śmieci.
+The map shows the whole path **button → event → action → light** and lights it up live when a physical button is pressed, which makes troubleshooting easier. Named white tone and colour presets work in manual control and in actions. This is not a scene mechanism — scenes and complex automations stay in Home Assistant.
+
+| | |
+|---|---|
+| ![Map](doc/screenshots/map.png) | ![Presets](doc/screenshots/presets.png) |
+
+## Home Assistant and MQTT
+
+Whisli talks to Home Assistant over MQTT with **MQTT Discovery** — lights and buttons appear in HA by themselves, as one device with a name of your choice. The controller publishes its availability and the light states (with brightness, white tone and colour) and takes commands from HA. Each button is an "event" entity with the last gesture and its history, and its gestures are also device triggers for automations.
+
+The broker connection can be checked with **Test connection** before saving the settings. After the base topic or the broker changes, the controller removes its old messages, so no leftovers stay on the broker.
 
 ![MQTT](doc/screenshots/mqtt.png)
 
-**Whisli:** fizyczne wejścia i wyjścia, obsługa przycisków, sterowanie światłami, lokalne akcje, konfiguracja i komunikacja z HA.
+**Whisli:** physical inputs and outputs, button handling, light control, local actions, configuration and communication with HA.
 
-**Home Assistant:** sceny, harmonogramy, czujniki obecności, automatyzacje zależne od innych urządzeń i integracje z pozostałymi systemami.
+**Home Assistant:** scenes, schedules, presence sensors, automations that depend on other devices and integrations with other systems.
 
-Awaria Home Assistanta lub brokera MQTT nie blokuje lokalnego sterowania oświetleniem. Sam ESP32 pozostaje pojedynczym punktem awarii.
+A Home Assistant or MQTT broker failure does not block local lighting control. The ESP32 itself remains a single point of failure.
 
-## Sprzęt
+## Hardware
 
-Na obecnym etapie wykorzystuję gotowe moduły. Nie projektowałem własnego PCB.
+At this stage I use ready-made modules. I have not designed my own PCB.
 
-| Element | Zastosowanie |
+| Part | Used for |
 |---|---|
-| Waveshare ESP32-S3 PoE ETH 8DI/8DO | Sterownik główny |
-| Waveshare Modbus RTU 16CH Relay | Sterowanie obwodami ON/OFF |
-| Moduł wejść cyfrowych RS485 | Dodatkowe wejścia dla przycisków |
-| DMX512 D24 24CH | Sterowanie taśmami LED |
-| DMX512 S1-DR 2CH | Ściemnianie kompatybilnego oświetlenia 230 V |
-| Konwerter TTL ↔ RS485 | Interfejs magistrali |
-| Zasilacze 5 V / 24 V | Zasilanie elektroniki i LED |
+| Waveshare ESP32-S3 PoE ETH 8DI/8DO | Main controller |
+| Waveshare Modbus RTU 16CH Relay | Switching ON/OFF circuits |
+| RS485 digital input module | Extra inputs for buttons |
+| DMX512 D24 24CH | Driving LED strips |
+| DMX512 S1-DR 2CH | Dimming compatible 230 V lighting |
+| TTL ↔ RS485 converter | Bus interface |
+| 5 V / 24 V power supplies | Powering the electronics and LEDs |
 
-Konstrukcja pozwala rozbudowywać liczbę wejść i wyjść przez dodatkowe moduły. Konkretne limity zależą od konfiguracji magistral, firmware i użytego sprzętu.
+The design allows adding inputs and outputs with extra modules. The actual limits depend on the bus configuration, the firmware and the hardware used.
 
-## Laboratorium
+## The lab
 
-![Stanowisko testowe Whisli](doc/screenshots/lab.jpg)
+![Whisli test bench](doc/screenshots/lab.jpg)
 
-Tak wygląda obecne stanowisko testowe. Cable management na razie nie jest częścią projektu. ;)
+This is the current test bench. Cable management is not part of the project yet. ;)
 
-Na tym zestawie testuję komunikację z urządzeniami, sterowanie oświetleniem i kolejne wersje firmware. Firmware jest napisany w **C++ z wykorzystaniem PlatformIO** i działa na ESP32-S3. Interfejs WWW jest udostępniany bezpośrednio przez sterownik. Konfiguracja jest przechowywana lokalnie; system nie wymaga zewnętrznej bazy danych ani serwera aplikacyjnego.
+On this setup I test communication with the devices, lighting control and new firmware versions. The firmware is written in **C++ with PlatformIO** and runs on the ESP32-S3. The web interface is served directly by the controller. The configuration is stored locally; the system needs no external database or application server.
 
-## Co dalej?
+## What next?
 
-Większość pierwotnych założeń funkcjonalnych jest już zrealizowana. Następny etap to przede wszystkim testy i przygotowanie do pracy w rzeczywistej instalacji:
+Most of the original functional goals are done. The next stage is mainly testing and preparing for a real installation:
 
-- Długoterminowe testy stabilności.
-- Testy komunikacji z większą liczbą modułów.
-- Obsługa błędów i sytuacji awaryjnych.
-- Dopracowanie diagnostyki.
-- Testy zachowania po zaniku i powrocie zasilania.
-- Optymalizacja firmware i wykorzystania pamięci.
-- Dokumentacja podłączenia modułów.
-- Uproszczenie pierwszego uruchomienia.
+- Long-term stability tests.
+- Tests with more modules on the bus.
+- Error handling and failure situations.
+- Better diagnostics.
+- Behaviour after a power cut and when power comes back.
+- Firmware and memory optimisation.
+- Documentation for wiring the modules.
+- A simpler first setup.
 
-Nie planuję budować uniwersalnej platformy automatyki domowej. Zakres Whisli ma pozostać ograniczony do **wejść, świateł, akcji, komunikacji i konfiguracji**.
+I do not plan to build a general home automation platform. Whisli's scope is to stay limited to **inputs, lights, actions, communication and configuration**.
 
-## Po co publikuję?
+## Why publish it?
 
-Projekt powstał na potrzeby mojej instalacji, ale może przydać się również osobom, które mają instalację w topologii gwiazdy albo planują jej wykonanie i nie chcą zaczynać od pisania własnego firmware.
+The project was made for my own installation, but it may also help people who have a star-topology installation, or plan one, and do not want to start by writing their own firmware.
 
-Docelowy proces uruchomienia — bez znajomości C++:
+The intended setup — without knowing C++:
 
-1. Wgrać firmware na ESP32.
-2. Podłączyć obsługiwane moduły.
-3. Skonfigurować urządzenia przez przeglądarkę.
-4. Zdefiniować światła.
-5. Przypisać akcje do przycisków.
-6. Opcjonalnie skonfigurować MQTT.
+1. Flash the firmware to the ESP32.
+2. Connect the supported modules.
+3. Configure the devices in the browser.
+4. Define the lights.
+5. Assign actions to the buttons.
+6. Optionally set up MQTT.
 
 > [!WARNING]
-> Projekt jest nadal rozwijany i nie przeszedł jeszcze długoterminowych testów w docelowej instalacji. Nie jest certyfikowanym systemem automatyki budynkowej. Prace przy obwodach 230 V powinny być wykonywane przez osoby z odpowiednimi kwalifikacjami, z zachowaniem wymaganych zabezpieczeń i przepisów.
+> The project is still in development and has not yet been tested long-term in its target installation. It is not a certified building automation system. Work on 230 V circuits should be done by qualified people, with the required protection and in line with the regulations.
 
-Kod udostępniam do testów, wykorzystania we własnych projektach i ewentualnej rozbudowy.
+I share the code for testing, for use in your own projects and for further development.
 
-## Szybki start
+## Quick start
 
-Gotowy firmware jest w [wydaniach na GitHubie](https://github.com/tjaworski997/whisli/releases/latest) — nie trzeba niczego kompilować. Każde wydanie ma dwa pliki:
+Ready firmware is in the [GitHub releases](https://github.com/tjaworski997/whisli/releases/latest) — no need to compile anything. Each release has two files:
 
-| Plik | Do czego |
+| File | For |
 |---|---|
-| [`firmware-full.bin`](https://github.com/tjaworski997/whisli/releases/latest/download/firmware-full.bin) | Pierwsze wgranie przez USB na czystą płytkę |
-| [`firmware.bin`](https://github.com/tjaworski997/whisli/releases/latest/download/firmware.bin) | Aktualizacja działającego sterownika przez panel |
+| [`firmware-full.bin`](https://github.com/tjaworski997/whisli/releases/latest/download/firmware-full.bin) | First flash over USB to a blank board |
+| [`firmware.bin`](https://github.com/tjaworski997/whisli/releases/latest/download/firmware.bin) | Updating a running controller from the panel |
 
-### 1. Wgranie firmware
+### 1. Flashing the firmware
 
-1. Podłącz płytkę Waveshare ESP32-S3-POE-ETH-8DI-8DO kablem USB-C, **trzymając przycisk BOOT** — płytka wejdzie w tryb wgrywania.
-2. W Chrome lub Edge otwórz [ESP Tool](https://espressif.github.io/esptool-js/), kliknij **Connect** i wybierz port płytki.
-3. W polu **Flash Address** zostaw `0x0`, wybierz plik `firmware-full.bin` i kliknij **Program**.
-4. Po zakończeniu odłącz i podłącz zasilanie.
+1. Connect the Waveshare ESP32-S3-POE-ETH-8DI-8DO board with a USB-C cable **while holding the BOOT button** — the board enters flashing mode.
+2. In Chrome or Edge open [ESP Tool](https://espressif.github.io/esptool-js/), click **Connect** and choose the board's port.
+3. Leave **Flash Address** at `0x0`, choose `firmware-full.bin` and click **Program**.
+4. When it finishes, unplug and reconnect the power.
 
-Z wiersza poleceń to samo robi [esptool](https://docs.espressif.com/projects/esptool/):
+From the command line, [esptool](https://docs.espressif.com/projects/esptool/) does the same:
 
 ```sh
 esptool.py --chip esp32s3 write_flash 0x0 firmware-full.bin
 ```
 
-### 2. Pierwsze połączenie
+### 2. First connection
 
-- **Ethernet:** podłącz kabel — sterownik dostanie adres z DHCP (sprawdzisz go w routerze). Płytkę można też zasilić przez PoE.
-- **Wi-Fi:** połącz się z siecią **`Whisli-Setup`**, hasło **`whisli_gogo`**, i otwórz `http://192.168.4.1/`. Stąd podłączysz sterownik do domowego Wi-Fi.
+- **Ethernet:** plug in the cable — the controller gets an address from DHCP (check it in your router). The board can also be powered over PoE.
+- **Wi-Fi:** join the **`Whisli-Setup`** network, password **`whisli_gogo`**, and open `http://192.168.4.1/`. From there you can connect the controller to your home Wi-Fi.
 
-### 3. Logowanie
+### 3. Signing in
 
 | | |
 |---|---|
-| Hasło panelu | `whisli_gogo` |
-| Hasło sieci `Whisli-Setup` | `whisli_gogo` |
+| Panel password | `whisli_gogo` |
+| `Whisli-Setup` network password | `whisli_gogo` |
 
-Zmień oba od razu: hasło panelu w **System → Ustawienia**, punkt dostępowy w **System → Sieć** (tam można go też wyłączyć — wróci sam, jeśli sterownik przez minutę nie będzie miał żadnej sieci).
+Change both right away: the panel password in **System → Settings**, the access point in **System → Network** (it can also be turned off there — it comes back by itself if the controller has no network for a minute).
 
-**Zapomniane hasło panelu:** przytrzymaj przycisk BOOT na działającym sterowniku przez 10 sekund. Wraca hasło `whisli_gogo`, konfiguracja zostaje.
+**Forgotten panel password:** hold the BOOT button on the running controller for 10 seconds. The password goes back to `whisli_gogo`; the configuration stays.
 
-### 4. Konfiguracja
+### 4. Configuration
 
-W panelu: **Urządzenia** (moduły przekaźników, DMX) → **Światła** → **Strefy** → **Akcje** dla przycisków. Połączenie z Home Assistantem: **System → MQTT**.
+In the panel: **Devices** (relay modules, DMX) → **Lights** → **Zones** → **Actions** for the buttons. Connection to Home Assistant: **System → MQTT**.
 
-Kolejne wersje wgrywa się już bez USB: **System → Ustawienia → Aktualizacja firmware**, plik `firmware.bin`.
+Later versions are installed without USB: **System → Settings → Firmware update**, file `firmware.bin`.
 
 ---
 
-# Dokumentacja techniczna
+# Technical documentation
 
-Lokalny sterownik oświetlenia i automatyki domu na płytce Waveshare
-ESP32-S3-POE-ETH-8DI-8DO. Przyciski ścienne sterują światłami i przekaźnikami
-bezpośrednio na sterowniku — bez Internetu, chmury i Home Assistanta. Panel WWW
-służy do konfiguracji i podglądu, a jego zmiany widać na żywo.
+A local lighting and home automation controller on the Waveshare
+ESP32-S3-POE-ETH-8DI-8DO board. Wall buttons control lights and relays
+directly on the controller — without the internet, the cloud or Home Assistant. The web panel
+is for configuration and monitoring, and its changes show live.
 
-Co obsługuje dziś:
+What it supports today:
 
-- **Wejścia** — 8 wbudowanych DI z rozpoznawaniem gestów (klik, podwójny, potrójny,
-  długi, przytrzymanie).
-- **Akcje** — gest przycisku → włącz / wyłącz / przełącz, ustaw jasność, rozjaśnij /
-  ściemnij o n %, ustaw preset barwy lub koloru, wywołaj webhook; cel: światło,
-  przekaźnik albo webhook.
-- **Strefy i presety** — grupowanie świateł i przycisków w pomieszczenia; nazwane
-  barwy bieli i kolory.
-- **MQTT / Home Assistant** — MQTT Discovery: światła (stany i sterowanie), przyciski
-  jako encje zdarzenia i wyzwalacze urządzenia; nazwa urządzenia w HA do ustawienia,
-  test połączenia z brokerem, sprzątanie starych tematów po zmianie ustawień
+- **Inputs** — 8 built-in DIs with gesture recognition (click, double, triple,
+  long, hold).
+- **Actions** — button gesture → on / off / toggle, set brightness, brighten /
+  dim by n %, set a white tone or colour preset, call a webhook; target: a light,
+  a relay or a webhook.
+- **Zones and presets** — grouping lights and buttons into rooms; named
+  white tones and colours.
+- **MQTT / Home Assistant** — MQTT Discovery: lights (state and control), buttons
+  as event entities and device triggers; settable device name in HA,
+  broker connection test, cleanup of old topics after the settings change
   (**System → MQTT**).
-- **Światła** — przełączane (przekaźnik), ściemniane (DMX, 1 kanał), barwa bieli
-  CCT (2 kanały), kolor RGB (3) i RGBW (4). Dla każdego światła DMX: krzywa
-  ściemniania i jasność minimalna.
-- **Webhooki** — zapytania HTTP/HTTPS (GET, POST, PUT, DELETE) wywoływane z akcji
-  przycisków: szablon treści (JSON, formularz, tekst) ze zmiennymi `{button}`,
-  `{gesture}`, `{zone}`, `{time}`…, nagłówki z tokenami, opcja ignorowania błędów
-  certyfikatu. Wysyłane w tle z limitem 5 s — przyciski nigdy na nie nie czekają.
-- **Notatki** — zwykły tekst o instalacji (sprzęt, okablowanie, adresy), zapisywany
-  na bieżąco i dołączany do kopii konfiguracji.
-- **Urządzenia** — 8 wbudowanych wyjść DO oraz do 16 modułów przekaźników
-  Modbus RTU (Waveshare 16CH / 32CH lub profil własny).
-- **DMX512** — jedno uniwersum na UART0 (GPIO43) dla dekoderów LED i ściemniaczy
-  230 V (np. S1-DR).
-- **Panel** — React, polski i angielski, jasny i ciemny motyw, aktualizacje na
-  żywo przez WebSocket, dziennik zdarzeń, aktualizacja firmware przez przeglądarkę.
+- **Lights** — switched (relay), dimmed (DMX, 1 channel), CCT white tone
+  (2 channels), RGB colour (3) and RGBW (4). For each DMX light: dimming curve
+  and minimum brightness.
+- **Webhooks** — HTTP/HTTPS requests (GET, POST, PUT, DELETE) called from button
+  actions: body template (JSON, form, text) with the variables `{button}`,
+  `{gesture}`, `{zone}`, `{time}`…, headers with tokens, an option to ignore
+  certificate errors. Sent in the background with a 5 s limit — buttons never wait for them.
+- **Notes** — plain text about the installation (hardware, wiring, addresses), saved
+  as you type and included in the configuration backup.
+- **Devices** — 8 built-in DO outputs and up to 16 Modbus RTU relay modules
+  (Waveshare 16CH / 32CH or a custom profile).
+- **DMX512** — one universe on UART0 (GPIO43) for LED decoders and 230 V dimmers
+  (e.g. S1-DR).
+- **Panel** — React, Polish and English, light and dark theme, live updates
+  over WebSocket, event log, firmware update from the browser.
 
-Najważniejsza zasada: **przyciski i światła mają absolutny priorytet**; panel, API,
-OTA i integracje zawsze im ustępują.
+The most important rule: **buttons and lights have absolute priority**; the panel, API,
+OTA and integrations always give way to them.
 
-### Układ kodu
+### Code layout
 
 ```text
-src/main.cpp          składanie modułów; loop() tylko dla zadań w tle
-src/bootstrap/        sieć (Ethernet, Wi-Fi, punkt dostępowy), /setup, OTA
-src/net/              serwer HTTP (esp_http_server), logowanie, WebSocket
-src/app/              wejścia, akcje, światła, DMX, Modbus, MQTT, webhooki, API aplikacji
-src/system/           konfiguracja w plikach (LittleFS), kopia konfiguracji, notatki,
-                      dziennik zdarzeń, blokada stanu
-include/whisli/       interfejsy; system/task_priorities.hpp — kolejność zadań
-data/                 katalog profili urządzeń (źródło dla generatora C++)
-ui/                   panel React (shadcn/ui, Base UI, Tailwind, Lucide)
-doc/                  dokumentacja sprzętu, zrzuty ekranu
+src/main.cpp          puts the modules together; loop() only for background jobs
+src/bootstrap/        network (Ethernet, Wi-Fi, access point), /setup, OTA
+src/net/              HTTP server (esp_http_server), sign-in, WebSocket
+src/app/              inputs, actions, lights, DMX, Modbus, MQTT, webhooks, application API
+src/system/           configuration in files (LittleFS), configuration backup, notes,
+                      event log, state lock
+include/whisli/       interfaces; system/task_priorities.hpp — task order
+data/                 device profile catalogue (source for the C++ generator)
+ui/                   React panel (shadcn/ui, Base UI, Tailwind, Lucide)
+doc/                  hardware documentation, screenshots
 ```
 
-### Budowanie
+### Building
 
 ```sh
 ./scripts/build_firmware.sh
 ```
 
-Skrypt nadaje wersję `0.002.RRRRMMDDGGMM`, buduje panel React, kompresuje go i
-osadza w firmware, a następnie kompiluje obraz. Wynik w `_build/`:
+The script stamps the version `0.002.YYYYMMDDHHMM`, builds the React panel, compresses it,
+embeds it in the firmware and compiles the image. Output in `_build/`:
 
-- `firmware.bin` — kod sterownika z panelem (nie ma osobnego systemu plików);
-  do aktualizacji przez panel lub API,
-- `firmware-full.bin` — to samo z bootloaderem i tablicą partycji, do pierwszego
-  wgrania przez USB od adresu `0x0`.
+- `firmware.bin` — the controller code with the panel (there is no separate file system image);
+  for updates from the panel or the API,
+- `firmware-full.bin` — the same with the bootloader and partition table, for the first
+  flash over USB at address `0x0`.
 
-Panel można rozwijać lokalnie na żywym sterowniku (proxy `/api` z WebSocketem):
+The panel can be developed locally against a live controller (`/api` proxy with WebSocket):
 
 ```sh
 cd ui && npm install
 WHISLI_DEVICE_URL=http://192.168.128.141 ./run_react.sh
 ```
 
-### Pierwsze uruchomienie
+### First start
 
-Z gotowego wydania — patrz [Szybki start](#szybki-start). Ze źródeł:
+From a ready release — see [Quick start](#quick-start). From source:
 
-1. Wgraj obraz przez USB: `./scripts/build_firmware.sh -t upload`
-   (płytka w trybie pobierania: przytrzymaj BOOT przy podłączaniu USB).
-2. Po kablu sterownik dostaje adres z DHCP. Bez kabla połącz się z Wi-Fi
-   `Whisli-Setup` (hasło `whisli_gogo`) i otwórz `http://192.168.4.1/`.
-3. Zaloguj się do panelu hasłem `whisli_gogo` i od razu ustaw własne
-   (**System → Ustawienia**). Wi-Fi i punkt dostępowy: **System → Sieć**.
+1. Flash the image over USB: `./scripts/build_firmware.sh -t upload`
+   (board in download mode: hold BOOT while plugging in USB).
+2. On a cable the controller gets an address from DHCP. Without a cable join the
+   `Whisli-Setup` Wi-Fi (password `whisli_gogo`) and open `http://192.168.4.1/`.
+3. Sign in to the panel with `whisli_gogo` and set your own password right away
+   (**System → Settings**). Wi-Fi and the access point: **System → Network**.
 
-Punkt `Whisli-Setup` jest domyślnie włączony. Można go wyłączyć; wraca sam, gdy
-sterownik przez minutę nie ma Ethernetu ani Wi-Fi, żeby dało się odzyskać dostęp.
+The `Whisli-Setup` access point is on by default. It can be turned off; it comes back by itself when
+the controller has neither Ethernet nor Wi-Fi for a minute, so access can always be recovered.
 
-### Aktualizacje
+### Updates
 
-Panel → **System → Ustawienia** → wybierz `_build/firmware.bin` → **Wgraj firmware**. Panel
-odczytuje wersję z pliku, wysyła go (ok. 10 s), czeka na restart i uznaje
-aktualizację za udaną dopiero, gdy sterownik zgłosi wersję z pliku. Przy błędzie
-przyczyna jest w dzienniku zdarzeń (kategoria „firmware”).
+Panel → **System → Settings** → choose `_build/firmware.bin` → **Upload firmware**. The panel
+reads the version from the file, sends it (about 10 s), waits for the restart and counts the
+update as successful only when the controller reports the version from the file. On an error
+the reason is in the event log (category "firmware").
 
-Z wiersza poleceń:
-
-```sh
-curl -u whisli:<hasło> -H "Content-Type: application/octet-stream" \
-  --data-binary @_build/firmware.bin http://<adres>/api/v1/firmware
-```
-
-### Kopia konfiguracji
-
-**System → Kopia konfiguracji:** „Pobierz kopię” zapisuje urządzenia, wejścia,
-światła, akcje i strefy do pliku JSON; „Wczytaj z pliku” zastępuje nimi obecną
-konfigurację i restartuje sterownik. Do kopii trafiają też presety, webhooki i notatki.
-Ustawienia sieci i MQTT trafiają do pliku bez haseł; hasła Wi-Fi i MQTT oraz nagłówki
-webhooków (tokeny) tylko w bloku zaszyfrowanym hasłem kopii (AES-256-GCM).
-Hasło panelu nie trafia do pliku nigdy.
+From the command line:
 
 ```sh
-curl -u whisli:<hasło> http://<adres>/api/v1/config/backup -o whisli_config.json
-curl -u whisli:<hasło> -H "Content-Type: application/json" \
-  --data-binary @whisli_config.json http://<adres>/api/v1/config/restore
+curl -u whisli:<password> -H "Content-Type: application/octet-stream" \
+  --data-binary @_build/firmware.bin http://<address>/api/v1/firmware
 ```
 
-### Logowanie
+### Configuration backup
 
-Jeden użytkownik, samo hasło (domyślne `whisli_gogo`). Panel ma własny ekran
-logowania z opcją „Zapamiętaj mnie na 30 dni”, wylogowanie w nagłówku, a zmianę
-hasła w **System → Hasło dostępu**. Skrypty i `curl` logują się przez HTTP Basic
-z dowolną nazwą użytkownika i tym samym hasłem.
+**System → Configuration backup:** "Download backup" saves devices, inputs,
+lights, actions and zones to a JSON file; "Load from file" replaces the current
+configuration with them and restarts the controller. Presets, webhooks and notes are included too.
+Network and MQTT settings go into the file without passwords; Wi-Fi and MQTT passwords and
+webhook headers (tokens) only in a block encrypted with the backup password (AES-256-GCM).
+The panel password never goes into the file.
 
-- Hasło jest zapisane w sterowniku jako skrót PBKDF2 z solą.
-- Błędne hasła trafiają do dziennika zdarzeń.
-- **Zapomniane hasło:** przytrzymaj przycisk BOOT na działającym sterowniku przez
-  10 s. Wraca hasło domyślne i wszystkie sesje są kończone; konfiguracja zostaje.
-- Panel działa po zwykłym HTTP, więc dostęp spoza domu tylko przez VPN, nigdy
-  przez przekierowanie portu.
+```sh
+curl -u whisli:<password> http://<address>/api/v1/config/backup -o whisli_config.json
+curl -u whisli:<password> -H "Content-Type: application/json" \
+  --data-binary @whisli_config.json http://<address>/api/v1/config/restore
+```
 
-W trybie dev (`ui/run_react.sh`) panel loguje się normalnie przez proxy.
-`WHISLI_DEVICE_AUTH="whisli:<hasło>"` sprawia, że proxy loguje każde zapytanie
-samo i ekran logowania się nie pokazuje.
+### Sign-in
+
+One user, password only (default `whisli_gogo`). The panel has its own sign-in
+screen with "Remember me for 30 days", sign-out in the header, and the password
+change in **System → Settings** (Password). Scripts and `curl` sign in with HTTP Basic
+with any user name and the same password.
+
+- The password is stored on the controller as a salted PBKDF2 hash.
+- Wrong passwords are written to the event log.
+- **Forgotten password:** hold the BOOT button on the running controller for
+  10 s. The default password comes back and all sessions end; the configuration stays.
+- The panel runs over plain HTTP, so access from outside the home only through a VPN, never
+  through port forwarding.
+
+In dev mode (`ui/run_react.sh`) the panel signs in normally through the proxy.
+`WHISLI_DEVICE_AUTH="whisli:<password>"` makes the proxy sign in every request
+itself, and the sign-in screen does not show.
 
 ---
 

@@ -297,8 +297,9 @@ sprawdź pamięć (PSRAM vs wewnętrzny RAM), format zapisu i MQTT.
 
 ## 9. Dokumentacja
 
-- `README.md`: na górze wstęp dla ludzi (po polsku, bez opisywania ekranów), „Szybki start”, potem
-  „Dokumentacja techniczna”. Zrzuty w `doc/screenshots/`.
+- `README.md` (po angielsku, domyślny na GitHubie) i `README.pl.md` (po polsku) mają tę samą treść –
+  zmieniaj oba naraz; na górze każdego przełącznik języka. Układ: wstęp dla ludzi (bez opisywania
+  ekranów), „Szybki start”, potem „Dokumentacja techniczna”. Zrzuty w `doc/screenshots/` (polskie).
 - Gotowy firmware jest publikowany w GitHub Releases (`firmware.bin`, `firmware-full.bin`).
 - Komentarze w kodzie po angielsku (część starszych po polsku — nie przepisuj ich bez potrzeby);
   komentarz mówi *dlaczego*, nie *co*. Gęstość i styl jak w okolicznym kodzie.
