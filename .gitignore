@@ -9,3 +9,6 @@ src/app/embedded_ui.hpp
 include/whisli/app/device_profiles.generated.hpp
 include/whisli/version.generated.hpp
 
+
+# macOS
+.DS_Store
