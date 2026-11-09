@@ -1274,6 +1274,7 @@ void begin() {
 }
 
 void poll() {
+  whisli::system::flushConfigWrites();  // saved under the lock outside an API route (rare)
   broadcastChanges();
   // Levels to restore after a restart: copied under the lock, written to flash outside it.
   LightManager::SavedState state;

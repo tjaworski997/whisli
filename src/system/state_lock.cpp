@@ -12,6 +12,10 @@ void beginStateLock() {
   if (!stateMutex) stateMutex = xSemaphoreCreateRecursiveMutex();
 }
 
+bool stateLockHeldByCurrentTask() {
+  return stateMutex && xSemaphoreGetMutexHolder(stateMutex) == xTaskGetCurrentTaskHandle();
+}
+
 StateLock::StateLock() { xSemaphoreTakeRecursive(stateMutex, portMAX_DELAY); }
 StateLock::~StateLock() { xSemaphoreGiveRecursive(stateMutex); }
 

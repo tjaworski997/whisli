@@ -140,9 +140,13 @@ sterowaniem.
 - `whisli::system::StateLock` — jedna rekurencyjna blokada wokół stanu aplikacji (światła,
   urządzenia, akcje, strefy, presety, webhooki).
 - Pomiar: `GET /api/v1/system` → `control` (`maxLateMs`, `maxBusyMs` i rozbicie: `maxLockWaitMs`,
-  `maxBoardMs`, `maxModulesMs`, `maxLightsMs`); `POST /api/v1/system/control/reset` zeruje. Znany
-  problem: trasy zapisujące konfigurację piszą do flasha pod blokadą — zadanie control czeka wtedy
-  100–370 ms (zmierzone 2026-11-09). Do naprawy: zapis poza blokadą, jak `takeStateToSave()`.
+  `maxBoardMs`, `maxModulesMs`, `maxLightsMs`); `POST /api/v1/system/control/reset` zeruje.
+- Zapis konfiguracji pod blokadą (`ConfigStore::write`/`remove` z zadania, które trzyma
+  `StateLock`) tylko trafia do kolejki; odczyty widzą wartości z kolejki. Na flash zapisuje
+  `flushConfigWrites()`: serwer HTTP zaraz po trasie (przed odpowiedzią), `loop()` resztę, restart
+  przed `ESP.restart()`. Wcześniej zadanie control czekało na blokadę 160–370 ms przy każdym
+  zapisie z panelu, teraz ok. 15 ms (to już wstrzymanie procesora przez sam zapis flasha).
+  Konsekwencja: błąd zapisu nie cofa zmiany w pamięci, tylko trafia do dziennika.
 - Trasy HTTP domyślnie (`StateAccess::Locked`) wykonują się pod blokadą, z buforowaniem odpowiedzi
   (wysyłka do sieci po zwolnieniu). **Trzymaj je krótkie.** Trasa, która czeka (np. test webhooka,
   sieć, upload), musi mieć `StateAccess::None` i brać `StateLock` sama, na chwilę.
@@ -313,7 +317,8 @@ sprawdź pamięć (PSRAM vs wewnętrzny RAM), format zapisu i MQTT.
 
 ## 8. Czego nie robić
 
-- Nie wywołuj sieci, flasha ani długich operacji pod `StateLock` lub w zadaniu control.
+- Nie wywołuj sieci, flasha ani długich operacji pod `StateLock` lub w zadaniu control
+  (`ConfigStore` sam odkłada zapis spod blokady; bezpośrednie `LittleFS`/NVS — nie).
 - Nie dodawaj dużych statycznych tablic ani `String` per obiekt w obiektach globalnych.
 - Nie zmieniaj wartości zapisanych enumów ani układu zapisanych struktur bez migracji.
 - Nie dodawaj sekretów do jawnej części kopii ani do dziennika zdarzeń. (Zalogowany panel dostaje

@@ -7,6 +7,7 @@
 
 #include "whisli/net/auth.hpp"
 #include "whisli/system/log.hpp"
+#include "whisli/system/config_store.hpp"
 #include "whisli/system/state_lock.hpp"
 #include "whisli/system/task_priorities.hpp"
 
@@ -177,6 +178,7 @@ esp_err_t dispatch(httpd_req_t* req) {
       whisli::system::StateLock lock;
       route->handler(request);
     }
+    whisli::system::flushConfigWrites();  // what the route saved, now that buttons no longer wait for it
     // The response goes on the wire below, outside the lock: buttons and lights never wait for a slow client.
   } else {
     route->handler(request);

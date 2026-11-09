@@ -13,6 +13,7 @@
 
 #include "whisli/net/auth.hpp"
 #include "whisli/net/http_server.hpp"
+#include "whisli/system/config_store.hpp"
 #include "whisli/net/json.hpp"
 #include "whisli/net/mqtt_settings.hpp"
 #include "whisli/system/config_backup.hpp"
@@ -562,6 +563,7 @@ void scheduleRestart(uint32_t delayMs) {
   scheduled = true;
   xTaskCreate([](void* argument) {
     vTaskDelay(pdMS_TO_TICKS(reinterpret_cast<uintptr_t>(argument)));
+    whisli::system::flushConfigWrites();  // nothing saved may be lost to the restart
     ESP.restart();
   }, "whisli-restart", 4096, reinterpret_cast<void*>(static_cast<uintptr_t>(delayMs)), 5, nullptr);
 }

@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "whisli/system/log.hpp"
+#include "whisli/system/state_lock.hpp"
 
 namespace whisli::system {
 namespace {
@@ -69,7 +70,114 @@ bool writeFile(const String& path, nvs_type_t type, const void* data, size_t len
   return ok;
 }
 
+bool readFile(const String& path, nvs_type_t& type, std::vector<uint8_t>& data) {
+  File file = LittleFS.open(path, "r");
+  if (!file) return false;
+  const size_t size = file.size();
+  if (size < 1) { file.close(); return false; }
+  uint8_t typeByte = 0;
+  file.read(&typeByte, 1);
+  data.resize(size - 1);
+  const bool ok = size == 1 || file.read(data.data(), size - 1) == size - 1;
+  file.close();
+  type = static_cast<nvs_type_t>(typeByte);
+  return ok;
+}
+
+// Unchanged values are not rewritten: flash wears with every write.
+bool writeIfChanged(const String& path, nvs_type_t type, const void* data, size_t length) {
+  nvs_type_t storedType;
+  std::vector<uint8_t> stored;
+  if (readFile(path, storedType, stored) && storedType == type && stored.size() == length && (length == 0 || memcmp(stored.data(), data, length) == 0)) return true;
+  return writeFile(path, type, data, length);
+}
+
+// Writes and removals queued under the state lock, one per file (a newer one replaces an older).
+// `generation` tells the flusher whether the entry it wrote was replaced meanwhile.
+struct PendingWrite {
+  String path;
+  bool remove = false;
+  nvs_type_t type = NVS_TYPE_BLOB;
+  std::vector<uint8_t> data;
+  uint32_t generation = 0;
+};
+
+struct PendingWrites {
+  SemaphoreHandle_t lock = xSemaphoreCreateMutex();        // the list
+  SemaphoreHandle_t flushing = xSemaphoreCreateMutex();    // one flusher at a time, in order
+  std::vector<PendingWrite> entries;
+  uint32_t generation = 0;
+};
+
+PendingWrites& pending() {
+  static PendingWrites writes;
+  return writes;
+}
+
+void queueWrite(const String& path, bool remove, nvs_type_t type, const void* data, size_t length) {
+  PendingWrites& writes = pending();
+  xSemaphoreTake(writes.lock, portMAX_DELAY);
+  PendingWrite* entry = nullptr;
+  for (PendingWrite& existing : writes.entries) if (existing.path == path) entry = &existing;
+  if (!entry) { writes.entries.emplace_back(); entry = &writes.entries.back(); entry->path = path; }
+  entry->remove = remove;
+  entry->type = type;
+  entry->data.assign(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + (remove ? 0 : length));
+  entry->generation = ++writes.generation;
+  xSemaphoreGive(writes.lock);
+}
+
+// 1: queued value found, 0: queued removal, -1: nothing queued (read the file).
+int readQueued(const String& path, nvs_type_t& type, std::vector<uint8_t>& data) {
+  PendingWrites& writes = pending();
+  xSemaphoreTake(writes.lock, portMAX_DELAY);
+  int result = -1;
+  for (const PendingWrite& entry : writes.entries) {
+    if (entry.path != path) continue;
+    result = entry.remove ? 0 : 1;
+    if (!entry.remove) { type = entry.type; data = entry.data; }
+  }
+  xSemaphoreGive(writes.lock);
+  return result;
+}
+
+bool anyQueued() {
+  PendingWrites& writes = pending();
+  xSemaphoreTake(writes.lock, portMAX_DELAY);
+  const bool any = !writes.entries.empty();
+  xSemaphoreGive(writes.lock);
+  return any;
+}
+
 }  // namespace
+
+void flushConfigWrites() {
+  PendingWrites& writes = pending();
+  if (!anyQueued()) return;
+  xSemaphoreTake(writes.flushing, portMAX_DELAY);
+  for (;;) {
+    // A copy: the entry stays queued (and readable) until it is on flash.
+    PendingWrite entry;
+    xSemaphoreTake(writes.lock, portMAX_DELAY);
+    const bool found = !writes.entries.empty();
+    if (found) entry = writes.entries.front();
+    xSemaphoreGive(writes.lock);
+    if (!found) break;
+    const bool ok = entry.remove ? (!LittleFS.exists(entry.path) || LittleFS.remove(entry.path))
+                                 : writeIfChanged(entry.path, entry.type, entry.data.data(), entry.data.size());
+    if (!ok) write(LogLevel::Error, "system", (String("Configuration could not be saved: ") + entry.path).c_str());
+    xSemaphoreTake(writes.lock, portMAX_DELAY);
+    for (auto item = writes.entries.begin(); item != writes.entries.end(); ++item) {
+      if (item->path != entry.path) continue;
+      // Replaced while it was being written: keep the newer one, and move it last so the loop ends.
+      if (item->generation == entry.generation) writes.entries.erase(item);
+      else { PendingWrite newer = std::move(*item); writes.entries.erase(item); writes.entries.push_back(std::move(newer)); }
+      break;
+    }
+    xSemaphoreGive(writes.lock);
+  }
+  xSemaphoreGive(writes.flushing);
+}
 
 bool mountFiles() {
   static int8_t state = -1;  // -1 not tried, 0 failed, 1 mounted
@@ -91,34 +199,36 @@ bool ConfigStore::begin(const char* space, bool readOnly) {
 
 bool ConfigStore::read(const char* key, nvs_type_t& type, std::vector<uint8_t>& data) {
   if (!mountFiles()) return false;
-  File file = LittleFS.open(path(key), "r");
-  if (!file) return false;
-  const size_t size = file.size();
-  if (size < 1) { file.close(); return false; }
-  uint8_t typeByte = 0;
-  file.read(&typeByte, 1);
-  data.resize(size - 1);
-  const bool ok = size == 1 || file.read(data.data(), size - 1) == size - 1;
-  file.close();
-  type = static_cast<nvs_type_t>(typeByte);
-  return ok;
+  const int queued = readQueued(path(key), type, data);
+  if (queued >= 0) return queued == 1;
+  return readFile(path(key), type, data);
 }
 
 bool ConfigStore::write(const char* key, nvs_type_t type, const void* data, size_t length) {
   if (readOnly_ || !mountFiles()) return false;
-  // Unchanged values are not rewritten: flash wears with every write.
-  nvs_type_t storedType;
-  std::vector<uint8_t> stored;
-  if (read(key, storedType, stored) && storedType == type && stored.size() == length && (length == 0 || memcmp(stored.data(), data, length) == 0)) return true;
-  return writeFile(path(key), type, data, length);
+  if (stateLockHeldByCurrentTask()) { queueWrite(path(key), false, type, data, length); return true; }
+  flushConfigWrites();  // older queued values first, or they would land over this one
+  return writeIfChanged(path(key), type, data, length);
 }
 
-bool ConfigStore::isKey(const char* key) { return mountFiles() && LittleFS.exists(path(key)); }
+bool ConfigStore::isKey(const char* key) {
+  if (!mountFiles()) return false;
+  nvs_type_t type;
+  std::vector<uint8_t> data;
+  const int queued = readQueued(path(key), type, data);
+  return queued >= 0 ? queued == 1 : LittleFS.exists(path(key));
+}
 
-bool ConfigStore::remove(const char* key) { return !readOnly_ && isKey(key) && LittleFS.remove(path(key)); }
+bool ConfigStore::remove(const char* key) {
+  if (readOnly_ || !isKey(key)) return false;
+  if (stateLockHeldByCurrentTask()) { queueWrite(path(key), true, NVS_TYPE_BLOB, nullptr, 0); return true; }
+  flushConfigWrites();
+  return LittleFS.remove(path(key));
+}
 
 bool ConfigStore::clear() {
   if (readOnly_ || !mountFiles()) return false;
+  flushConfigWrites();  // rare (restoring a backup): works on the files, so they must be current
   std::vector<String> keys;
   forEach([&](const String& key, nvs_type_t, const std::vector<uint8_t>&) { keys.push_back(key); });
   bool ok = true;
@@ -128,6 +238,7 @@ bool ConfigStore::clear() {
 
 void ConfigStore::forEach(const std::function<void(const String&, nvs_type_t, const std::vector<uint8_t>&)>& visit) {
   if (!mountFiles()) return;
+  flushConfigWrites();  // rare (backups): lists the files, so they must be current
   File directory = LittleFS.open(directory_);
   if (!directory || !directory.isDirectory()) return;
   std::vector<String> keys;
@@ -148,6 +259,10 @@ void ConfigStore::forEach(const std::function<void(const String&, nvs_type_t, co
 
 size_t ConfigStore::getBytesLength(const char* key) {
   if (!mountFiles()) return 0;
+  nvs_type_t type;
+  std::vector<uint8_t> data;
+  const int queued = readQueued(path(key), type, data);
+  if (queued >= 0) return data.size();
   File file = LittleFS.open(path(key), "r");
   if (!file) return 0;
   const size_t size = file.size();

@@ -6,6 +6,9 @@ namespace whisli::system {
 // loop() runs in its own; whoever touches lights, devices or actions holds this lock.
 void beginStateLock();
 
+// True when the calling task holds the lock (possibly several levels deep).
+bool stateLockHeldByCurrentTask();
+
 class StateLock {
  public:
   StateLock();

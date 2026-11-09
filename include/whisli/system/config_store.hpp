@@ -17,6 +17,11 @@ bool mountFiles();
 // "/cfg/<namespace>/<key>", holding a type byte (an nvs_type_t, for backups) and the value.
 // Writes go to a temporary file renamed over the old one, so a power cut keeps the previous value,
 // and unchanged values are not rewritten.
+//
+// A write or removal from a task holding the state lock (an API route, the control task) is only
+// queued: flash writes take tens to hundreds of milliseconds, and buttons wait for the lock that
+// long. Reads see queued values, so for the modules nothing changes; flushConfigWrites() writes
+// them once the lock is released (the HTTP server after each route, loop() for anything else).
 class ConfigStore {
  public:
   bool begin(const char* space, bool readOnly = false);
@@ -46,6 +51,9 @@ class ConfigStore {
   String directory_;
   bool readOnly_ = false;
 };
+
+// Writes what was queued under the state lock. Call without the lock; safe from any task.
+void flushConfigWrites();
 
 // Moves these namespaces from NVS to files: each one is copied whole, then erased from NVS.
 // Runs at start-up before the modules load; namespaces already moved are skipped.
