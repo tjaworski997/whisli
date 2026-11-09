@@ -6,14 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useI18n } from "@/i18n"
 import { channelLabel } from "@/lib/format"
+import { triggerLabels } from "@/lib/labels"
 
 export type ChannelRow = { name: string; used: boolean; hint?: string; state: ReactNode }
 
 const columns = "grid grid-cols-[58px_minmax(0,1fr)_76px_72px] items-center gap-3 border-b sm:grid-cols-[72px_minmax(0,1fr)_92px_100px] sm:gap-4"
 
-/** Physical channels (relay CH, controller DI/DO): fixed label, editable name, "used" flag and a state cell. */
-export function ChannelTable({ prefix, rows, stateLabel, disabled, onRename, onUsedChange }: {
+/** Physical channels (relay CH, controller DI/DO, module X): fixed label, editable name, "used" flag and a state cell. */
+export function ChannelTable({ prefix, firstNumber = 1, rows, stateLabel, disabled, onRename, onUsedChange }: {
   prefix: string
+  firstNumber?: number
   rows: ChannelRow[]
   stateLabel: string
   disabled: boolean
@@ -24,7 +26,7 @@ export function ChannelTable({ prefix, rows, stateLabel, disabled, onRename, onU
   return <div className="whisli-line mt-3 border-t">
     <div className={`${columns} whisli-muted whisli-line py-2 text-[11px]`}><span>{prefix}</span><span>{t("channelName")}</span><span className="text-center">{t("relayUsed")}</span><span className="text-right">{stateLabel}</span></div>
     {rows.map((row, index) => {
-      const label = channelLabel(prefix, index)
+      const label = channelLabel(prefix, index, firstNumber)
       return <div key={index} className={`${columns} whisli-line py-2.5`}>
         <span className="font-medium tabular-nums">{label}</span>
         <div className="min-w-0">
@@ -36,6 +38,38 @@ export function ChannelTable({ prefix, rows, stateLabel, disabled, onRename, onU
       </div>
     })}
   </div>
+}
+
+/** One button input as the firmware reports it: `high` is the voltage level on the terminal. */
+export type ButtonInputRow = { name: string; used: boolean; high: boolean; lastEvent: string }
+
+/**
+ * Button inputs, wherever they are (controller DI, module X): the same columns, level and last
+ * gesture everywhere. Whether pressed reads high or low depends on the wiring (board: low, PNP module: high).
+ */
+export function InputTable({ prefix, firstNumber, inputs, disabled, onRename, onUsedChange }: {
+  prefix: string
+  firstNumber?: number
+  inputs: ButtonInputRow[]
+  disabled: boolean
+  onRename: (index: number, name: string) => void
+  onUsedChange: (index: number, used: boolean) => void
+}) {
+  const { t } = useI18n()
+  return <ChannelTable
+    prefix={prefix}
+    firstNumber={firstNumber}
+    stateLabel={t("inputLevel")}
+    disabled={disabled}
+    onRename={onRename}
+    onUsedChange={onUsedChange}
+    rows={inputs.map(input => ({
+      name: input.name,
+      used: input.used,
+      hint: `${t("lastEvent")}: ${t(triggerLabels[input.lastEvent] ?? "inputEventNone")}`,
+      state: <span className="whisli-muted font-mono text-xs">{input.high ? t("inputHigh") : t("inputLow")}</span>,
+    }))}
+  />
 }
 
 export function OutputToggle({ on, busy, disabled, label, onClick }: { on: boolean; busy: boolean; disabled: boolean; label: string; onClick: () => void }) {

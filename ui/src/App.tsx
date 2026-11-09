@@ -16,6 +16,7 @@ import { ControllerPage } from "@/pages/controller-page"
 import { DeviceCatalogPage } from "@/pages/device-catalog-page"
 import { DeviceListPage } from "@/pages/device-list-page"
 import { HomePage } from "@/pages/home-page"
+import { InputModulePage } from "@/pages/input-module-page"
 import { LoginPage } from "@/pages/login-page"
 import { LogsPage } from "@/pages/logs-page"
 import { WebhooksPage } from "@/pages/webhooks-page"
@@ -28,7 +29,7 @@ import { RelayPage } from "@/pages/relay-page"
 import { SystemPage } from "@/pages/system-page"
 import { TestPage } from "@/pages/test-page"
 import { ZonesPage } from "@/pages/zones-page"
-import type { Device, Relay } from "@/types"
+import type { Device, ModbusDevice } from "@/types"
 
 
 // The map pulls in React Flow (~50 kB gzip); load it only when opened.
@@ -67,7 +68,7 @@ function Panel() {
   /** `null` until the first successful load. On errors the last known list is kept and `connected` drops. */
   const [devices, setDevices] = useState<Device[] | null>(null)
   const [connected, setConnected] = useState(true)
-  const [pendingRemoval, setPendingRemoval] = useState<Relay | null>(null)
+  const [pendingRemoval, setPendingRemoval] = useState<ModbusDevice | null>(null)
 
   async function refreshDevices() {
     try {
@@ -108,6 +109,7 @@ function Panel() {
       case "device":
         if (devices === null) return <Muted>{t("connecting")}</Muted>
         if (device?.kind === "relay") return <RelayPage key={device.id} relay={device} onBack={backToDevices} onRefresh={refreshDevices} onRemove={() => setPendingRemoval(device)} />
+        if (device?.kind === "inputModule") return <InputModulePage key={device.id} module={device} onBack={backToDevices} onRefresh={refreshDevices} onRemove={() => setPendingRemoval(device)} />
         if (device?.kind === "controller") return <ControllerPage key={device.id} device={device} onBack={backToDevices} onRefresh={refreshDevices} />
         break // Unknown or removed device: show the list.
       case "devices": break
@@ -185,7 +187,7 @@ function NavLink({ to, current, className, title, onNavigate, children }: { to: 
     }}>{children}</a>
 }
 
-function RemoveDeviceDialog({ device, onClose, onRemoved }: { device: Relay; onClose: () => void; onRemoved: () => void }) {
+function RemoveDeviceDialog({ device, onClose, onRemoved }: { device: ModbusDevice; onClose: () => void; onRemoved: () => void }) {
   const { t } = useI18n()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")

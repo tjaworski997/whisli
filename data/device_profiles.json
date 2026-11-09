@@ -9,6 +9,13 @@
       "available": true
     },
     {
+      "id": "input",
+      "nameKey": "deviceClassInput",
+      "descriptionKey": "deviceClassInputDescription",
+      "icon": "toggle",
+      "available": true
+    },
+    {
       "id": "led_dimmer",
       "nameKey": "deviceClassLedDimmer",
       "descriptionKey": "deviceClassLedDimmerDescription",
@@ -50,6 +57,22 @@
       "searchKeywords": "waveshare 32 32ch 32 channel relay przekaźnik modbus rtu rs485",
       "defaultChannelCount": 32,
       "defaultCoilStart": 0,
+      "minimumChannelCount": 1,
+      "maximumChannelCount": 32,
+      "editableChannelCount": true,
+      "editableCoilStart": true,
+      "available": true
+    },
+    {
+      "id": "eletechsup_n4dih32",
+      "deviceClass": "input",
+      "nameKey": "inputProfileN4dih32",
+      "descriptionKey": "inputN4dih32CatalogDescription",
+      "defaultNameKey": "inputDefaultNameN4dih32",
+      "communication": "RS-485 · Modbus RTU · 32 DI",
+      "searchKeywords": "eletechsup n4dih32 32 32ch input wejścia wejscia przyciski buttons pnp modbus rtu rs485",
+      "defaultChannelCount": 32,
+      "defaultCoilStart": 192,
       "minimumChannelCount": 1,
       "maximumChannelCount": 32,
       "editableChannelCount": true,

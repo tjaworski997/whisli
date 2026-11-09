@@ -230,7 +230,7 @@ void ControllerIo::poll() {
   for (uint8_t index = 0; index < kControllerInputCount; ++index) {
     changed |= device_.inputsHigh[index] != inputLevelsHigh[index] || device_.inputLastEvents[index] != inputEvents[index];
     // Press and release right away, for live views; gestures follow once recognised.
-    if (device_.inputsHigh[index] != inputLevelsHigh[index]) recordInputEvent(index, inputLevelsHigh[index] ? "release" : "press");
+    if (device_.inputsHigh[index] != inputLevelsHigh[index]) recordInputEvent(InputRef{0, index}, inputLevelsHigh[index] ? "release" : "press");
     device_.inputsHigh[index] = inputLevelsHigh[index];
     device_.inputLastEvents[index] = inputEvents[index];
   }
@@ -240,7 +240,7 @@ void ControllerIo::poll() {
   if (inputEventHandler_) {
     for (uint8_t input = 0; input < kControllerInputCount; ++input) {
       for (uint8_t event = 0; event < newEventCounts[input]; ++event) {
-        inputEventHandler_(inputEventContext_, input, newEvents[input][event]);
+        inputEventHandler_(inputEventContext_, InputRef{0, input}, newEvents[input][event]);
       }
     }
   }

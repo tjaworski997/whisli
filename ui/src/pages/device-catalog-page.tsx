@@ -1,4 +1,4 @@
-import { Lightbulb, Radio, Search, Zap, type LucideIcon } from "lucide-react"
+import { Lightbulb, Radio, Search, ToggleLeft, Zap, type LucideIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { ErrorText, IconTile, Muted, PageHeader } from "@/components/page"
@@ -7,7 +7,7 @@ import { useI18n, type TranslationKey } from "@/i18n"
 import { getJson, post } from "@/lib/api"
 import type { Device, DeviceCatalogData } from "@/types"
 
-const icons: Record<string, LucideIcon> = { radio: Radio, lightbulb: Lightbulb }
+const icons: Record<string, LucideIcon> = { radio: Radio, lightbulb: Lightbulb, toggle: ToggleLeft }
 const columns = "grid grid-cols-[minmax(260px,2fr)_minmax(140px,1fr)_minmax(210px,1.5fr)_120px] items-center gap-4 border-b px-3"
 const maxModbusAddress = 247
 
@@ -45,7 +45,7 @@ export function DeviceCatalogPage({ devices, onBack, onRefresh, onAdded }: {
   }, [])
 
   async function addDevice(entry: CatalogEntry) {
-    const used = new Set(devices.flatMap(device => device.kind === "relay" ? [device.address] : []))
+    const used = new Set(devices.flatMap(device => device.kind === "controller" ? [] : [device.address]))
     let address = 1
     while (address <= maxModbusAddress && used.has(address)) address++
     if (address > maxModbusAddress) { setError(t("relayNoFreeAddresses")); return }
@@ -56,7 +56,7 @@ export function DeviceCatalogPage({ devices, onBack, onRefresh, onAdded }: {
       const result = await post("/api/v1/devices", { profile: entry.id, name: t((entry.defaultNameKey || "relayDefaultNameCustom") as TranslationKey), address })
       if (!result.ok) { setError(result.message || t("operationFailed")); return }
       const refreshed = await onRefresh()
-      onAdded(refreshed.find(device => device.kind === "relay" && device.address === address && device.profile === entry.id) ?? null)
+      onAdded(refreshed.find(device => device.kind !== "controller" && device.address === address && device.profile === entry.id) ?? null)
     } finally {
       setAddingProfile(null)
     }

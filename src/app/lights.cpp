@@ -524,7 +524,7 @@ bool LightManager::relayTargetAvailable(const String& target) const {
   const int separator = target.indexOf(".output-"); uint8_t device; uint8_t channel;
   if (separator < 6 || !parseNumber(target.substring(6, separator), device) || !parseNumber(target.substring(separator + 8), channel)) return false;
   const RelaySnapshot relay = relays_.snapshot(device);
-  return relay.configured && relay.active && channel <= relay.channelCount && relay.channelUsed[channel - 1];
+  return relay.configured && relay.active && !relay.inputs && channel <= relay.channelCount && relay.channelUsed[channel - 1];
 }
 
 bool LightManager::setRelayTarget(const String& target, bool on) {

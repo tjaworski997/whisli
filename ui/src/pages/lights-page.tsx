@@ -16,14 +16,14 @@ import { useI18n, type TranslationKey } from "@/i18n"
 import { getJson, post } from "@/lib/api"
 import { naturalCompare, useRememberedSort, useStableOrder } from "@/lib/sort"
 import { cn } from "@/lib/utils"
-import type { DimCurve, Device, Dimming, Light, LightBehavior, LightsResponse } from "@/types"
+import { isOutputDevice, type DimCurve, type Device, type Dimming, type Light, type LightBehavior, type LightsResponse } from "@/types"
 
 /** A used output a relay light can switch: "Module · channel name", with its code (CH01, DO03) apart. */
 type Output = { id: string; device: string; channel: string; code: string }
 const outputLabel = (output: Output) => `${output.device} · ${output.channel}`
 
 function relayOutputs(devices: Device[]): Output[] {
-  return devices.flatMap(device => {
+  return devices.filter(isOutputDevice).flatMap(device => {
     if (device.kind === "relay" && !device.active) return []
     const prefix = device.kind === "controller" ? "DO" : "CH"
     const base = device.kind === "controller" ? "controller" : `relay-${device.id.replace("relay-", "")}`

@@ -1,11 +1,10 @@
 import { Cpu } from "lucide-react"
 
-import { AllOutputsButtons, ChannelTable, OutputToggle } from "@/components/channel-table"
+import { AllOutputsButtons, ChannelTable, InputTable, OutputToggle } from "@/components/channel-table"
 import { AutoSaveInput, Field, Muted, PageHeader, SaveStatus, Section, Status } from "@/components/page"
 import { useDeviceCommands } from "@/hooks/use-device-commands"
 import { useI18n } from "@/i18n"
 import { channelLabel } from "@/lib/format"
-import { triggerLabels } from "@/lib/labels"
 import type { ControllerDevice } from "@/types"
 
 export function ControllerPage({ device, onBack, onRefresh }: { device: ControllerDevice; onBack: () => void; onRefresh: () => unknown }) {
@@ -27,18 +26,12 @@ export function ControllerPage({ device, onBack, onRefresh }: { device: Controll
     </Section>
 
     <Section title={t("digitalInputsTitle")} description={t("digitalInputsDescription")}>
-      <ChannelTable
+      <InputTable
         prefix="DI"
-        stateLabel={t("inputLevel")}
         disabled={commands.saving}
         onRename={commands.renameInput}
         onUsedChange={commands.setInputUsed}
-        rows={device.inputsHigh.map((high, index) => ({
-          name: device.inputNames[index] ?? "",
-          used: device.inputUsed[index] ?? false,
-          hint: `${t("lastEvent")}: ${t(triggerLabels[device.inputLastEvents[index]] ?? "inputEventNone")}`,
-          state: <span className="whisli-muted font-mono text-xs">{high ? t("inputHigh") : t("inputLow")}</span>,
-        }))}
+        inputs={device.inputsHigh.map((high, index) => ({ name: device.inputNames[index] ?? "", used: device.inputUsed[index] ?? false, high, lastEvent: device.inputLastEvents[index] ?? "none" }))}
       />
     </Section>
 

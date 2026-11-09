@@ -20,7 +20,7 @@ void ChaosMode::start() {
   moduleCount_ = 0;
   for (uint8_t index = 0; index < count; ++index) {
     const RelaySnapshot relay = relays_.snapshot(ids[index]);
-    if (!relay.configured || !relay.active) continue;
+    if (!relay.configured || !relay.active || relay.inputs) continue;  // input modules have nothing to switch
     Module& module = modules_[moduleCount_++];
     module.id = relay.id;
     module.channelCount = relay.channelCount;

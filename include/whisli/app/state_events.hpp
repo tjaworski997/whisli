@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "whisli/app/input_ref.hpp"
+
 namespace whisli::app {
 
 // What changed, so listeners (the panel over WebSocket, later MQTT) refresh only what they show.
@@ -20,8 +22,8 @@ uint8_t takeChanges(uint32_t& revision);
 // Button activity for live views (the panel map): "press", "release" and recognised gestures
 // ("click", "doubleClick", ...). Recorded by the control task without touching the network; loop()
 // takes them and broadcasts. A small ring: when it overflows, the oldest are dropped.
-struct InputEventRecord { uint8_t input; const char* trigger; };
-void recordInputEvent(uint8_t input, const char* trigger);
+struct InputEventRecord { InputRef input; const char* trigger; };
+void recordInputEvent(InputRef input, const char* trigger);
 bool takeInputEvent(InputEventRecord& output);
 
 }  // namespace whisli::app

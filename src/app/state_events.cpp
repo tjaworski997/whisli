@@ -30,7 +30,7 @@ uint8_t takeChanges(uint32_t& revision) {
   return topics;
 }
 
-void recordInputEvent(uint8_t input, const char* trigger) {
+void recordInputEvent(InputRef input, const char* trigger) {
   portENTER_CRITICAL(&changeMux);
   inputEvents[(inputEventHead + inputEventCount) % kInputEventCapacity] = InputEventRecord{input, trigger};
   if (inputEventCount < kInputEventCapacity) ++inputEventCount;

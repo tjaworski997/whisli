@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include "whisli/app/button_input.hpp"
+#include "whisli/app/input_ref.hpp"
 
 namespace whisli::app {
 
@@ -23,7 +24,7 @@ struct ControllerDevice {
 
 class ControllerIo {
  public:
-  using InputEventHandler = void (*)(void* context, uint8_t input, ButtonEvent event);
+  using InputEventHandler = void (*)(void* context, InputRef input, ButtonEvent event);
 
   bool begin();
   ControllerDevice snapshot();

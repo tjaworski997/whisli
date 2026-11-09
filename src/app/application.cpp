@@ -13,6 +13,7 @@
 #include "whisli/app/input_actions.hpp"
 #include "whisli/app/lights.hpp"
 #include "whisli/app/modbus_relays.hpp"
+#include "whisli/app/module_inputs.hpp"
 #include "whisli/app/mqtt_bridge.hpp"
 #include "whisli/app/presets.hpp"
 #include "whisli/app/state_events.hpp"
@@ -41,10 +42,11 @@ DmxOutput dmx;
 LightManager lights(controllerIo, relays, dmx);
 ZoneManager zones;
 PresetManager presets(lights);
-HttpHookManager hooks(controllerIo, zones);
+HttpHookManager hooks(controllerIo, relays, zones);
 InputActionManager inputActions(controllerIo, relays, lights, presets, hooks);
 ChaosMode chaos(controllerIo, relays, lights);
-MqttBridge mqttBridge(lights, controllerIo);
+MqttBridge mqttBridge(lights, controllerIo, relays);
+ModuleInputs moduleInputs(relays);
 
 const char* lightKindName(LightKind kind) {
   switch (kind) {
@@ -70,6 +72,16 @@ constexpr uint32_t kControlPeriodMs = 5;
 // They prove the priority rule: panel traffic or OTA must not push these up.
 volatile uint32_t controlMaxLateUs = 0;
 volatile uint32_t controlMaxBusyUs = 0;
+// The busy time split up, to tell what a slow cycle was waiting for: the state lock (held by an API
+// route or loop()), the board's inputs, the input modules, or the lights.
+volatile uint32_t controlMaxLockWaitUs = 0;
+volatile uint32_t controlMaxBoardUs = 0;
+volatile uint32_t controlMaxModulesUs = 0;
+volatile uint32_t controlMaxLightsUs = 0;
+void keepMax(volatile uint32_t& maximum, int64_t from, int64_t to) {
+  const uint32_t value = static_cast<uint32_t>(to - from);
+  if (value > maximum) maximum = value;
+}
 
 void controlTask(void*) {
   TickType_t nextWakeAt = xTaskGetTickCount();
@@ -80,8 +92,16 @@ void controlTask(void*) {
     if (late > controlMaxLateUs) controlMaxLateUs = late;
     {
       whisli::system::StateLock lock;
+      const int64_t lockedAt = esp_timer_get_time();
+      keepMax(controlMaxLockWaitUs, startedAt, lockedAt);
       controllerIo.poll();  // reads inputs and runs their actions (lights, outputs, relay commands)
+      const int64_t boardDoneAt = esp_timer_get_time();
+      keepMax(controlMaxBoardUs, lockedAt, boardDoneAt);
+      moduleInputs.poll();  // the same for buttons on Modbus input modules, from their last reading
+      const int64_t modulesDoneAt = esp_timer_get_time();
+      keepMax(controlMaxModulesUs, boardDoneAt, modulesDoneAt);
       lights.tick();        // advances fades
+      keepMax(controlMaxLightsUs, modulesDoneAt, esp_timer_get_time());
     }
     const uint32_t busy = static_cast<uint32_t>(esp_timer_get_time() - startedAt);
     if (busy > controlMaxBusyUs) controlMaxBusyUs = busy;
@@ -91,7 +111,7 @@ void controlTask(void*) {
   }
 }
 
-void handleInputEvent(void* context, uint8_t input, ButtonEvent event) {
+void handleInputEvent(void* context, InputRef input, ButtonEvent event) {
   static_cast<InputActionManager*>(context)->handleInputEvent(input, event);
   notifyChange(kTopicDevices | kTopicActions);  // the same gesture twice is still news for the panel
   // Repeated hold ticks would flood the map; its start is enough to show the gesture (release shows its end).
@@ -103,7 +123,7 @@ void broadcastChanges() {
   InputEventRecord record;
   while (takeInputEvent(record)) {
     mqttBridge.publishGesture(record.input, record.trigger);  // Home Assistant device triggers
-    whisli::net::broadcast("{\"type\":\"input\",\"input\":\"controller.input-" + String(record.input + 1) +
+    whisli::net::broadcast("{\"type\":\"input\",\"input\":\"" + inputIdOf(record.input) +
                            "\",\"trigger\":\"" + record.trigger + "\"}");
   }
   const unsigned long now = millis();
@@ -128,6 +148,26 @@ void broadcastChanges() {
   add(kTopicZones, "zones");
   message += "]}";
   whisli::net::broadcast(message);
+}
+
+// A Modbus input module: buttons, like the controller's inputs (`inputPressed`: true while pressed).
+void appendInputModule(String& body, const RelaySnapshot& module, const DeviceProfileDefinition* profile) {
+  body += "{\"id\":\"relay-" + String(module.id) + "\",\"kind\":\"inputModule\",\"builtIn\":false,\"name\":\"" + jsonEscape(module.name) +
+      "\",\"profile\":\"" + jsonEscape(module.profile) + "\",\"profileNameKey\":\"" +
+      (profile ? String(profile->nameKey) : String("deviceClassInput")) +
+      "\",\"address\":" + String(module.address) + ",\"channelCount\":" + String(module.channelCount) +
+      ",\"coilStart\":" + String(module.coilStart) + ",\"active\":" + String(module.active ? "true" : "false") +
+      ",\"online\":" + String(module.online ? "true" : "false") + ",\"inputPressed\":[";
+  for (uint8_t channel = 0; channel < module.channelCount; ++channel) body += String(channel ? "," : "") + (module.channels[channel] ? "true" : "false");
+  body += "],\"inputUsed\":[";
+  for (uint8_t channel = 0; channel < module.channelCount; ++channel) body += String(channel ? "," : "") + (module.channelUsed[channel] ? "true" : "false");
+  body += "],\"inputNames\":[";
+  for (uint8_t channel = 0; channel < module.channelCount; ++channel) body += String(channel ? ",\"" : "\"") + jsonEscape(module.channelNames[channel]) + "\"";
+  body += "],\"inputLastEvents\":[";
+  for (uint8_t channel = 0; channel < module.channelCount; ++channel) {
+    body += String(channel ? ",\"" : "\"") + buttonEventName(moduleInputs.lastEvent(module.id, channel)) + "\"";
+  }
+  body += "]}";
 }
 
 void sendDevices(Request& request) {
@@ -177,6 +217,10 @@ void sendDevices(Request& request) {
     body += ',';
     const RelaySnapshot relay = relays.snapshot(deviceIds[index]);
     const DeviceProfileDefinition* profile = findDeviceProfile(relay.profile);
+    if (relay.inputs) {
+      appendInputModule(body, relay, profile);
+      continue;
+    }
     body += "{\"id\":\"relay-" + String(relay.id) + "\",\"kind\":\"relay\",\"builtIn\":false,\"name\":\"" + jsonEscape(relay.name) +
         "\",\"profile\":\"" + jsonEscape(relay.profile) + "\",\"profileNameKey\":\"" +
         (profile ? String(profile->nameKey) : String("relayProfileCustom")) +
@@ -219,6 +263,25 @@ void sendActionPanel(Request& request) {
         "\",\"high\":" + String(controller.inputsHigh[channel] ? "true" : "false") +
         ",\"lastEvent\":\"" + String(buttonEventName(controller.inputLastEvents[channel])) + "\"}";
   }
+  // Buttons on Modbus input modules. `high` follows the board's inputs: true while released.
+  uint8_t moduleIds[kMaxRelayDevices];
+  const uint8_t moduleCount = relays.deviceIds(moduleIds, kMaxRelayDevices);
+  for (uint8_t index = 0; index < moduleCount; ++index) {
+    const RelaySnapshot module = relays.snapshot(moduleIds[index]);
+    if (!module.inputs) continue;
+    for (uint8_t channel = 0; channel < module.channelCount; ++channel) {
+      if (!module.channelUsed[channel]) continue;
+      if (!first) body += ',';
+      first = false;
+      const InputRef input{module.id, channel};
+      const String hardwareName = inputHardwareName(input);
+      String name = module.channelNames[channel];
+      if (name.isEmpty()) name = String(module.name) + " " + hardwareName;
+      body += "{\"id\":\"" + inputIdOf(input) + "\",\"name\":\"" + jsonEscape(name.c_str()) + "\",\"hardwareName\":\"" + hardwareName +
+          "\",\"high\":" + String(module.channels[channel] ? "false" : "true") +
+          ",\"lastEvent\":\"" + String(buttonEventName(moduleInputs.lastEvent(module.id, channel))) + "\"}";
+    }
+  }
   // Targets: lights first, then relay outputs. `group` lets the UI split them.
   body += "],\"targets\":[";
   first = true;
@@ -245,7 +308,7 @@ void sendActionPanel(Request& request) {
   const uint8_t relayCount = relays.deviceIds(relayIds, kMaxRelayDevices);
   for (uint8_t index = 0; index < relayCount; ++index) {
     const RelaySnapshot relay = relays.snapshot(relayIds[index]);
-    if (!relay.active) continue;
+    if (!relay.active || relay.inputs) continue;
     for (uint8_t channel = 0; channel < relay.channelCount; ++channel) {
       if (!relay.channelUsed[channel]) continue;
       if (!first) body += ',';
@@ -369,7 +432,12 @@ void sendZones(Request& request) {
 bool zoneTargetExists(const String& target) {
   LightSnapshot light;
   if (target.startsWith("light-")) return lights.find(static_cast<uint8_t>(target.substring(6).toInt()), light);
-  if (target.startsWith("controller.input-")) { const long input = target.substring(17).toInt(); return input >= 1 && input <= kControllerInputCount; }
+  InputRef input;
+  if (parseInputId(target, input)) {
+    if (input.device == 0) return true;
+    const RelaySnapshot module = relays.snapshot(input.device);
+    return module.configured && module.inputs && input.channel < module.channelCount;
+  }
   return false;
 }
 
@@ -590,6 +658,7 @@ void begin() {
   presets.begin();
   inputActions.begin();
   controllerIo.setInputEventHandler(handleInputEvent, &inputActions);
+  moduleInputs.setEventHandler(handleInputEvent, &inputActions);
   xTaskCreatePinnedToCore(controlTask, "whisli-control", 6144, nullptr, whisli::system::kControlTaskPriority, nullptr, 1);
   using whisli::net::on;
   using whisli::net::onPublic;
@@ -626,8 +695,17 @@ void begin() {
                   ",\"otaAvailableKb\":" + String(ESP.getFreeSketchSpace() / 1024) + nvsStats() +
                   "},\"control\":{\"periodMs\":" + String(kControlPeriodMs) +
                   ",\"maxLateMs\":" + String(controlMaxLateUs / 1000.0f, 1) +
-                  ",\"maxBusyMs\":" + String(controlMaxBusyUs / 1000.0f, 1) + "}}";
+                  ",\"maxBusyMs\":" + String(controlMaxBusyUs / 1000.0f, 1) +
+                  ",\"maxLockWaitMs\":" + String(controlMaxLockWaitUs / 1000.0f, 2) +
+                  ",\"maxBoardMs\":" + String(controlMaxBoardUs / 1000.0f, 2) +
+                  ",\"maxModulesMs\":" + String(controlMaxModulesUs / 1000.0f, 2) +
+                  ",\"maxLightsMs\":" + String(controlMaxLightsUs / 1000.0f, 2) + "}}";
     request.sendJson(200, body);
+  }, StateAccess::None);
+  // Starts the worst-case measurements afresh, e.g. before a test.
+  on("/api/v1/system/control/reset", Method::Post, [](Request& request) {
+    controlMaxLateUs = controlMaxBusyUs = controlMaxLockWaitUs = controlMaxBoardUs = controlMaxModulesUs = controlMaxLightsUs = 0;
+    request.sendJson(200, "{\"message\":\"Pomiary wyzerowane.\"}");
   }, StateAccess::None);
   on("/api/v1/devices", Method::Get, [](Request& request) {
     sendDevices(request);
@@ -909,6 +987,29 @@ void begin() {
     body += "]}";
     request.sendJson(200, body);
   }, StateAccess::None);
+  // Diagnostics for finding unknown Modbus modules: one read request, raw reply in hex. Waits for
+  // the Modbus task, so it runs without StateLock.
+  on("/api/v1/devices/modbus/probe", Method::Get, [](Request& request) {
+    const int address = request.arg("address").toInt();
+    const int function = request.arg("function").toInt();
+    const int start = request.arg("start").toInt();
+    const int count = request.hasArg("count") ? request.arg("count").toInt() : 1;
+    ModbusRelayManager::ProbeResult result;
+    if (address < 1 || address > 247 || function < 1 || function > 4 || start < 0 || start > 65535 || count < 1 || count > 1000 ||
+        !relays.probe(static_cast<uint8_t>(address), static_cast<uint8_t>(function), static_cast<uint16_t>(start), static_cast<uint16_t>(count), result)) {
+      request.sendJson(400, "{\"message\":\"Nieprawidłowe zapytanie albo magistrala Modbus jest zajęta.\"}");
+      return;
+    }
+    static const char kHex[] = "0123456789ABCDEF";
+    String hex;
+    for (uint8_t index = 0; index < result.length; ++index) {
+      if (index) hex += ' ';
+      hex += kHex[result.bytes[index] >> 4];
+      hex += kHex[result.bytes[index] & 0x0F];
+    }
+    request.sendJson(200, "{\"answered\":" + String(result.answered ? "true" : "false") + ",\"length\":" + String(result.length) +
+                              ",\"reply\":\"" + hex + "\"}");
+  }, StateAccess::None);
   on("/api/v1/devices", Method::Post, [](Request& request) {
     const String profile = request.arg("profile");
     const String name = request.arg("name");
@@ -920,20 +1021,21 @@ void begin() {
     const DeviceProfileDefinition* selectedProfile = findDeviceProfile(profile.c_str());
     const int selectedChannels = channelCount > 0 ? channelCount : selectedProfile ? selectedProfile->defaultChannelCount : 0;
     const int selectedCoilStart = coilStart >= 0 ? coilStart : selectedProfile ? selectedProfile->defaultCoilStart : -1;
+    const String deviceClass = selectedProfile ? selectedProfile->deviceClass : "";
     if (name.isEmpty() || address < 1 || address > 247 || !selectedProfile || !selectedProfile->available ||
-        String(selectedProfile->deviceClass) != "relay" || selectedChannels < selectedProfile->minimumChannelCount ||
+        (deviceClass != "relay" && deviceClass != "input") || selectedChannels < selectedProfile->minimumChannelCount ||
         selectedChannels > selectedProfile->maximumChannelCount || selectedCoilStart < 0 || selectedCoilStart > 65503 ||
         (!channelCountArgument.isEmpty() && !selectedProfile->editableChannelCount) ||
         (!coilStartArgument.isEmpty() && !selectedProfile->editableCoilStart)) {
-      request.sendJson(400, "{\"message\":\"Sprawdź profil, nazwę, adres Modbus i liczbę przekaźników.\"}");
+      request.sendJson(400, "{\"message\":\"Sprawdź profil, nazwę, adres Modbus i liczbę kanałów.\"}");
       return;
     }
     if (!relays.add(*selectedProfile, name, static_cast<uint8_t>(address), selectedChannels, selectedCoilStart)) {
-      whisli::system::write(whisli::system::LogLevel::Error, "devices", "Could not add relay device");
+      whisli::system::write(whisli::system::LogLevel::Error, "devices", "Could not add Modbus device");
       request.sendJson(409, "{\"message\":\"Nie udało się dodać urządzenia. Sprawdź limit, unikalny adres slave i konfigurację profilu.\"}");
       return;
     }
-    whisli::system::write(whisli::system::LogLevel::Info, "devices", "Relay device added");
+    whisli::system::write(whisli::system::LogLevel::Info, "devices", deviceClass == "input" ? "Input module added" : "Relay device added");
     request.sendJson(201, "{\"message\":\"Urządzenie dodane. Trwa sprawdzanie połączenia.\"}");
   });
   on("/api/v1/devices/settings", Method::Post, [](Request& request) {
@@ -1095,7 +1197,25 @@ void begin() {
   });
   on("/api/v1/devices/inputs", Method::Get, [](Request& request) {
     if (request.arg("id") != "controller") {
-      request.sendJson(404, "{\"inputs\":[]}"); return;
+      const RelaySnapshot module = relays.snapshot(requestedDeviceId(request));
+      if (!module.configured || !module.inputs) { request.sendJson(404, "{\"inputs\":[]}"); return; }
+      const bool usedOnly = request.arg("used") == "true";
+      String body = "{\"inputs\":[";
+      bool first = true;
+      for (uint8_t channel = 0; channel < module.channelCount; ++channel) {
+        if (usedOnly && !module.channelUsed[channel]) continue;
+        if (!first) body += ',';
+        first = false;
+        const InputRef input{module.id, channel};
+        String channelName = module.channelNames[channel];
+        if (channelName.isEmpty()) channelName = inputHardwareName(input);
+        body += "{\"id\":\"" + inputIdOf(input) + "\",\"number\":" + String(channel + 1) +
+            ",\"name\":\"" + jsonEscape(channelName.c_str()) + "\",\"used\":" + String(module.channelUsed[channel] ? "true" : "false") +
+            ",\"high\":" + String(module.channels[channel] ? "false" : "true") +
+            ",\"lastEvent\":\"" + String(buttonEventName(moduleInputs.lastEvent(module.id, channel))) + "\"}";
+      }
+      request.sendJson(200, body + "]}");
+      return;
     }
     const ControllerDevice controller = controllerIo.snapshot();
     const bool usedOnly = request.arg("used") == "true";
@@ -1117,7 +1237,15 @@ void begin() {
   });
   on("/api/v1/devices/input/name", Method::Post, [](Request& request) {
     const int channel = request.arg("channel").toInt();
-    if (request.arg("id") != "controller" || channel < 1 || channel > kControllerInputCount ||
+    if (request.arg("id") != "controller") {
+      const uint8_t id = requestedDeviceId(request);
+      if (!relays.snapshot(id).inputs || channel < 1 || channel > kMaxRelayChannels || !relays.setChannelName(id, channel - 1, request.arg("name"))) {
+        request.sendJson(400, "{\"message\":\"Nieprawidłowe wejście lub nazwa jest zbyt długa.\"}"); return;
+      }
+      request.sendJson(200, "{\"message\":\"Nazwa wejścia zapisana.\"}");
+      return;
+    }
+    if (channel < 1 || channel > kControllerInputCount ||
         !controllerIo.setInputName(channel - 1, request.arg("name"))) {
       request.sendJson(400, "{\"message\":\"Nieprawidłowa nazwa wejścia cyfrowego.\"}"); return;
     }
@@ -1126,7 +1254,16 @@ void begin() {
   on("/api/v1/devices/input/usage", Method::Post, [](Request& request) {
     const int channel = request.arg("channel").toInt();
     const String used = request.arg("used");
-    if (request.arg("id") != "controller" || channel < 1 || channel > kControllerInputCount ||
+    if (request.arg("id") != "controller") {
+      const uint8_t id = requestedDeviceId(request);
+      if (!relays.snapshot(id).inputs || channel < 1 || channel > kMaxRelayChannels || (used != "true" && used != "false") ||
+          !relays.setChannelUsed(id, channel - 1, used == "true")) {
+        request.sendJson(400, "{\"message\":\"Nieprawidłowe wejście lub wartość pola Używany.\"}"); return;
+      }
+      request.sendJson(200, "{\"message\":\"Ustawienie użycia wejścia zapisane.\"}");
+      return;
+    }
+    if (channel < 1 || channel > kControllerInputCount ||
         (used != "true" && used != "false") || !controllerIo.setInputUsed(channel - 1, used == "true")) {
       request.sendJson(400, "{\"message\":\"Nieprawidłowe wejście lub wartość pola Używany.\"}"); return;
     }

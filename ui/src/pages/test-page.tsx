@@ -11,7 +11,7 @@ import { getJson, post } from "@/lib/api"
 import { channelLabel, formatUptime } from "@/lib/format"
 import { naturalCompare } from "@/lib/sort"
 import { cn } from "@/lib/utils"
-import type { Device, Light, LightsResponse, TestStatus } from "@/types"
+import { isOutputDevice, type Device, type Light, type LightsResponse, type OutputDevice, type TestStatus } from "@/types"
 
 /**
  * System › Installation test: every light and every output, used or not, to check the wiring one by
@@ -37,12 +37,12 @@ export function TestPage({ devices, onRefreshDevices }: { devices: Device[]; onR
     void refreshLights()
   }
   const toggleLight = async (light: Light) => { await post("/api/v1/lights/level", { id: light.id, level: light.level > 0 ? 0 : "on" }); void refreshLights() }
-  async function toggleOutput(device: Device, index: number) {
+  async function toggleOutput(device: OutputDevice, index: number) {
     await post("/api/v1/devices/channel", { id: device.id, channel: index + 1, state: device.channels[index] ? "off" : "on" })
     await onRefreshDevices()
     void refreshLights()  // relay lights follow their output
   }
-  async function setAll(device: Device, on: boolean) {
+  async function setAll(device: OutputDevice, on: boolean) {
     await post("/api/v1/devices/channels/all", { id: device.id, state: on ? "on" : "off" })
     await onRefreshDevices()
     void refreshLights()
@@ -95,7 +95,7 @@ export function TestPage({ devices, onRefreshDevices }: { devices: Device[]; onR
         </div>}
     </Section>
 
-    {devices.map(device => {
+    {devices.filter(isOutputDevice).map(device => {
       const inactive = device.kind === "relay" && !device.active
       const prefix = device.kind === "controller" ? "DO" : "CH"
       return <Section key={device.id} bordered className="mt-0 border-t-0 py-6" title={device.name}

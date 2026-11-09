@@ -286,13 +286,11 @@ HookResult HttpHookManager::send(const HttpHook& hook, const HookContext& contex
     variables.controller = controller.name;
     variables.buttonId = context.inputId;
     variables.gesture = context.gesture;
-    const String prefix = "controller.input-";
-    if (context.inputId.startsWith(prefix)) {
-      const long input = context.inputId.substring(prefix.length()).toInt();
-      if (input >= 1 && input <= kControllerInputCount) {
-        variables.button = controller.inputNames[input - 1];
-        if (variables.button.isEmpty()) variables.button = "DI" + String(input < 10 ? "0" : "") + String(input);
-      }
+    InputRef input;
+    if (parseInputId(context.inputId, input)) {
+      if (input.device == 0) variables.button = controller.inputNames[input.channel];
+      else variables.button = relays_.snapshot(input.device).channelNames[input.channel];
+      if (variables.button.isEmpty()) variables.button = inputHardwareName(input);
     } else if (context.inputId.isEmpty()) {
       variables.button = "Test";
       variables.gesture = context.gesture.isEmpty() ? "test" : context.gesture;

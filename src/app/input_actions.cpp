@@ -24,12 +24,6 @@ bool parseNumber(const String& value, uint8_t& output) {
   return true;
 }
 
-bool parseInputId(const String& value, uint8_t& channel) {
-  constexpr char prefix[] = "controller.input-";
-  if (!value.startsWith(prefix)) return false;
-  return parseNumber(value.substring(sizeof(prefix) - 1), channel) && channel <= kControllerInputCount;
-}
-
 bool parseControllerOutputId(const String& value, uint8_t& channel) {
   constexpr char prefix[] = "controller.output-";
   if (!value.startsWith(prefix)) return false;
@@ -303,9 +297,9 @@ bool InputActionManager::test(uint16_t id) {
   return false;
 }
 
-void InputActionManager::handleInputEvent(uint8_t input, ButtonEvent event) {
-  if (input >= kControllerInputCount || !controller_.snapshot().inputUsed[input]) return;
-  const String inputId = "controller.input-" + String(input + 1);
+void InputActionManager::handleInputEvent(InputRef input, ButtonEvent event) {
+  if (input.device == 0 && (input.channel >= kControllerInputCount || !controller_.snapshot().inputUsed[input.channel])) return;
+  const String inputId = inputIdOf(input);
   if (event == ButtonEvent::HoldEnd) return;  // the release itself starts nothing; LongClick follows
   ActionTrigger trigger;
   if (event == ButtonEvent::HoldStart) trigger = ActionTrigger::Hold;
@@ -316,7 +310,8 @@ void InputActionManager::handleInputEvent(uint8_t input, ButtonEvent event) {
   else return;  // Hold repeat samples are reserved for continuous actuators such as dimmers.
 
   char message[48];
-  snprintf(message, sizeof(message), "DI%02u recognized %s", input + 1, buttonEventName(event));
+  if (input.device == 0) snprintf(message, sizeof(message), "DI%02u recognized %s", input.channel + 1, buttonEventName(event));
+  else snprintf(message, sizeof(message), "Module %u X%02u recognized %s", input.device, input.channel, buttonEventName(event));
   whisli::system::write(whisli::system::LogLevel::Info, "inputs", message);
 
   // A long click is the same press as a hold; when the button has hold actions, the hold wins.
@@ -418,9 +413,11 @@ bool InputActionManager::eventExists(const String& inputId, ActionTrigger trigge
 }
 
 bool InputActionManager::inputAvailable(const String& inputId) const {
-  uint8_t channel = 0;
-  if (!parseInputId(inputId, channel)) return false;
-  return controller_.snapshot().inputUsed[channel - 1];
+  InputRef input;
+  if (!parseInputId(inputId, input)) return false;
+  if (input.device == 0) return controller_.snapshot().inputUsed[input.channel];
+  const RelaySnapshot module = relays_.snapshot(input.device);
+  return module.configured && module.inputs && input.channel < module.channelCount && module.channelUsed[input.channel];
 }
 
 bool InputActionManager::targetAvailable(const String& targetId) const {
@@ -435,7 +432,7 @@ bool InputActionManager::targetAvailable(const String& targetId) const {
   uint8_t id = 0;
   if (!parseRelayOutputId(targetId, id, channel)) return false;
   const RelaySnapshot relay = relays_.snapshot(id);
-  return relay.configured && relay.active && channel <= relay.channelCount && relay.channelUsed[channel - 1];
+  return relay.configured && relay.active && !relay.inputs && channel <= relay.channelCount && relay.channelUsed[channel - 1];
 }
 
 bool InputActionManager::execute(const InputAction& action) {
@@ -478,7 +475,7 @@ bool InputActionManager::execute(const InputAction& action) {
   uint8_t id = 0;
   if (!parseRelayOutputId(action.targetId, id, channel)) return false;
   const RelaySnapshot relay = relays_.snapshot(id);
-  if (!relay.configured || !relay.active || channel > relay.channelCount || !relay.channelUsed[channel - 1]) return false;
+  if (!relay.configured || !relay.active || relay.inputs || channel > relay.channelCount || !relay.channelUsed[channel - 1]) return false;
   const bool current = relay.channels[channel - 1];
   const bool desired = action.command == ActionCommand::TurnOn ? true :
       action.command == ActionCommand::TurnOff ? false : !current;

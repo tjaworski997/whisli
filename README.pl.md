@@ -102,7 +102,7 @@ Na obecnym etapie wykorzystuję gotowe moduły. Nie projektowałem własnego PCB
 |---|---|
 | Waveshare ESP32-S3 PoE ETH 8DI/8DO | Sterownik główny |
 | Waveshare Modbus RTU 16CH Relay | Sterowanie obwodami ON/OFF |
-| Moduł wejść cyfrowych RS485 | Dodatkowe wejścia dla przycisków |
+| Eletechsup N4DIH32 (32 DI, PNP, Modbus RTU) | Dodatkowe wejścia dla przycisków |
 | DMX512 D24 24CH | Sterowanie taśmami LED |
 | DMX512 S1-DR 2CH | Ściemnianie kompatybilnego oświetlenia 230 V |
 | Konwerter TTL ↔ RS485 | Interfejs magistrali |
@@ -206,8 +206,9 @@ służy do konfiguracji i podglądu, a jego zmiany widać na żywo.
 
 Co obsługuje dziś:
 
-- **Wejścia** — 8 wbudowanych DI z rozpoznawaniem gestów (klik, podwójny, potrójny,
-  długi, przytrzymanie).
+- **Wejścia** — 8 wbudowanych DI oraz moduły wejść Modbus (Eletechsup N4DIH32,
+  32 wejścia, odczyt co ok. 25 ms), wszystkie z rozpoznawaniem gestów (klik,
+  podwójny, potrójny, długi, przytrzymanie).
 - **Akcje** — gest przycisku → włącz / wyłącz / przełącz, ustaw jasność, rozjaśnij /
   ściemnij o n %, ustaw preset barwy lub koloru, wywołaj webhook; cel: światło,
   przekaźnik albo webhook.
@@ -226,8 +227,8 @@ Co obsługuje dziś:
   certyfikatu. Wysyłane w tle z limitem 5 s — przyciski nigdy na nie nie czekają.
 - **Notatki** — zwykły tekst o instalacji (sprzęt, okablowanie, adresy), zapisywany
   na bieżąco i dołączany do kopii konfiguracji.
-- **Urządzenia** — 8 wbudowanych wyjść DO oraz do 16 modułów przekaźników
-  Modbus RTU (Waveshare 16CH / 32CH lub profil własny).
+- **Urządzenia** — 8 wbudowanych wyjść DO oraz do 16 modułów Modbus RTU na jednej
+  magistrali: przekaźniki (Waveshare 16CH / 32CH lub profil własny) i moduły wejść.
 - **DMX512** — jedno uniwersum na UART0 (GPIO43) dla dekoderów LED i ściemniaczy
   230 V (np. S1-DR).
 - **Panel** — React, polski i angielski, jasny i ciemny motyw, aktualizacje na

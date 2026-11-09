@@ -22,11 +22,11 @@ constexpr uint32_t kStatesEveryMs = 200;      // lights changed by buttons show 
 constexpr uint32_t kDiscoveryEveryMs = 3000;  // renamed or added lights and buttons
 constexpr uint16_t kWarmKelvin = 2700;
 
-// FNV-1a: what was published, without keeping the text. Never 0, which means "nothing sent".
+// FNV-1a: what was published, without keeping the text. Never 0 ("nothing sent") or 1 ("send again").
 uint32_t textHash(const String& text) {
   uint32_t hash = 2166136261u;
   for (const char character : text) hash = (hash ^ static_cast<uint8_t>(character)) * 16777619u;
-  return hash ? hash : 1;
+  return hash > 1 ? hash : 2;
 }
 constexpr uint16_t kCoolKelvin = 6500;
 
@@ -191,7 +191,7 @@ void MqttBridge::stop(bool forget) {
   while (xQueueReceive(outgoing_, &stale, 0) == pdTRUE) delete stale;
   memset(lightStates_, 0, sizeof(lightStates_));
   memset(lightDiscovery_, 0, sizeof(lightDiscovery_));
-  for (auto& config : inputDiscovery_) config = String();
+  memset(inputDiscovery_, 0, sizeof(uint32_t) * kInputSlots);
 }
 
 void MqttBridge::onEvent(void* context, esp_event_base_t, int32_t, void* data) {
@@ -298,7 +298,19 @@ void MqttBridge::publishAll() {
   publish(availability_, "online", true);
   memset(lightStates_, 0, sizeof(lightStates_));
   memset(lightDiscovery_, 0, sizeof(lightDiscovery_));
-  for (auto& config : inputDiscovery_) config = String("\x01");
+  // Every board input, and every input of configured modules: unused ones get withdrawn. Slots of
+  // modules that do not exist stay quiet, or each connect would send hundreds of empty configs.
+  for (uint8_t input = 0; input < kControllerInputCount; ++input) inputDiscovery_[input] = 1;
+  uint8_t ids[kMaxRelayDevices];
+  const uint8_t count = relays_.deviceIds(ids, kMaxRelayDevices);
+  for (uint8_t index = 0; index < count; ++index) {
+    if (ids[index] < 1 || ids[index] > kMaxRelayDevices || !relays_.snapshot(ids[index]).inputs) continue;
+    for (uint8_t channel = 0; channel < kMaxRelayChannels; ++channel) inputDiscovery_[kControllerInputCount + (ids[index] - 1) * kMaxRelayChannels + channel] = 1;
+  }
+}
+
+String MqttBridge::inputKey(InputRef input) {
+  return input.device == 0 ? String(input.channel + 1) : "m" + String(input.device) + "_" + String(input.channel + 1);
 }
 
 String MqttBridge::deviceJson() const {
@@ -402,44 +414,66 @@ bool MqttBridge::publishDiscovery() {
   String eventTypes = "[";
   for (const Gesture& gesture : kGestures) eventTypes += String(eventTypes.length() > 1 ? "," : "") + "\"" + gesture.trigger + "\"";
   eventTypes += "]";
-  for (uint8_t input = 0; input < kControllerInputCount; ++input) {
-    String name = controller.inputNames[input];
-    if (name.isEmpty()) name = "DI" + String(input < 9 ? "0" : "") + String(input + 1);
-    const String signature = controller.inputUsed[input] ? name : String();
-    if (signature == inputDiscovery_[input]) continue;
+  bool full = false;
+  // One input: its event entity and a device trigger per gesture, or empty configs to withdraw them.
+  const auto announce = [&](uint16_t slot, InputRef input, const String& name, bool present) {
+    uint32_t& last = inputDiscovery_[slot];
+    const uint32_t hash = present ? textHash(name) : 0;
+    if (full || hash == last) return;
     const size_t gestures = sizeof(kGestures) / sizeof(kGestures[0]);
-    if (pending.size() + gestures + 1 > room) break;
-    inputDiscovery_[input] = signature;
-    const String actionTopic = settings_.baseTopic + "/input/" + String(input + 1) + "/action";
-    pending.push_back({settings_.discoveryPrefix + "/event/" + nodeId_ + "/input_" + String(input + 1) + "/config",
-                       signature.isEmpty() ? String() :
-                       "{\"name\":\"" + jsonEscape(name) + "\",\"unique_id\":\"" + nodeId_ + "_input_" + String(input + 1) +
+    if (pending.size() + gestures + 1 > room) { full = true; return; }
+    last = hash;
+    const String key = inputKey(input);
+    const String actionTopic = settings_.baseTopic + "/input/" + key + "/action";
+    pending.push_back({settings_.discoveryPrefix + "/event/" + nodeId_ + "/input_" + key + "/config",
+                       !present ? String() :
+                       "{\"name\":\"" + jsonEscape(name) + "\",\"unique_id\":\"" + nodeId_ + "_input_" + key +
                        "\",\"state_topic\":\"" + actionTopic + "\",\"value_template\":\"{\\\"event_type\\\":\\\"{{ value }}\\\"}\"" +
                        ",\"event_types\":" + eventTypes + ",\"device_class\":\"button\",\"availability_topic\":\"" + availability_ +
-                       "\",\"device\":" + device + "}", -1, input});
+                       "\",\"device\":" + device + "}", -1, slot});
     for (const Gesture& gesture : kGestures) {
-      const String topic = settings_.discoveryPrefix + "/device_automation/" + nodeId_ + "/input_" + String(input + 1) + "_" + gesture.trigger + "/config";
-      const String config = signature.isEmpty() ? String() :
+      const String topic = settings_.discoveryPrefix + "/device_automation/" + nodeId_ + "/input_" + key + "_" + gesture.trigger + "/config";
+      const String config = !present ? String() :
           "{\"automation_type\":\"trigger\",\"topic\":\"" + actionTopic + "\",\"type\":\"" +
           gesture.type + "\",\"subtype\":\"" + jsonEscape(name) + "\",\"payload\":\"" + gesture.trigger + "\",\"device\":" + device + "}";
-      pending.push_back({topic, config, -1, input});
+      pending.push_back({topic, config, -1, slot});
+    }
+  };
+  for (uint8_t input = 0; input < kControllerInputCount && !full; ++input) {
+    String name = controller.inputNames[input];
+    if (name.isEmpty()) name = inputHardwareName(InputRef{0, input});
+    announce(input, InputRef{0, input}, name, controller.inputUsed[input]);
+  }
+  // Module ids are 1..kMaxRelayDevices (slot + 1).
+  for (uint8_t id = 1; id <= kMaxRelayDevices && !full; ++id) {
+    const uint16_t base = kControllerInputCount + (id - 1) * kMaxRelayChannels;
+    bool announced = false;
+    for (uint8_t channel = 0; channel < kMaxRelayChannels; ++channel) announced |= inputDiscovery_[base + channel] != 0;
+    const RelaySnapshot module = relays_.snapshot(id);
+    const bool inputs = module.configured && module.inputs;
+    if (!inputs && !announced) continue;
+    for (uint8_t channel = 0; channel < kMaxRelayChannels && !full; ++channel) {
+      const InputRef input{id, channel};
+      String name = inputs ? module.channelNames[channel] : "";
+      if (name.isEmpty()) name = String(module.name) + " " + inputHardwareName(input);
+      announce(base + channel, input, name, inputs && module.active && channel < module.channelCount && module.channelUsed[channel]);
     }
   }
   // Not queued: forget it was sent, so it goes again.
   for (const Pending& item : pending) {
     if (publish(item.topic, item.payload, true)) continue;
     if (item.lightSlot >= 0) lightDiscovery_[item.lightSlot] = 0;
-    if (item.input >= 0) inputDiscovery_[item.input] = String("\x01");
+    if (item.input >= 0) inputDiscovery_[item.input] = 1;
   }
-  return pending.size() < room;
+  return pending.size() < room && !full;
 }
 
-void MqttBridge::publishGesture(uint8_t input, const char* trigger) {
-  if (!settingsLock_ || !client_ || !connected_ || input >= kControllerInputCount) return;
+void MqttBridge::publishGesture(InputRef input, const char* trigger) {
+  if (!settingsLock_ || !client_ || !connected_) return;
   if (xSemaphoreTake(settingsLock_, 0) != pdTRUE) return;
   for (const Gesture& gesture : kGestures) {
     if (strcmp(gesture.trigger, trigger) != 0) continue;
-    publish(settings_.baseTopic + "/input/" + String(input + 1) + "/action", trigger, false);
+    publish(settings_.baseTopic + "/input/" + inputKey(input) + "/action", trigger, false);
     break;
   }
   xSemaphoreGive(settingsLock_);

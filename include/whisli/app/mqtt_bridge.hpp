@@ -7,7 +7,9 @@
 #include <mqtt_client.h>
 
 #include "whisli/app/controller_io.hpp"
+#include "whisli/app/input_ref.hpp"
 #include "whisli/app/lights.hpp"
+#include "whisli/app/modbus_relays.hpp"
 #include "whisli/net/mqtt_settings.hpp"
 
 namespace whisli::app {
@@ -19,7 +21,8 @@ namespace whisli::app {
 //   <base>/status                     online / offline (retained, last will)
 //   <base>/light/<id>/state           {"state":"ON","brightness":…} (retained)
 //   <base>/light/<id>/set             commands from Home Assistant, same JSON
-//   <base>/input/<n>/action           click, doubleClick, tripleClick, longClick, hold
+//   <base>/input/<n>/action           click, doubleClick, tripleClick, longClick, hold (board input n)
+//   <base>/input/m<id>_<n>/action     the same for input n of Modbus input module <id>
 //
 // Everything that can wait for the network runs in low-priority tasks: the esp-mqtt client (connects
 // and reconnects by itself) and our worker (starts and stops the client when settings change, sends
@@ -28,12 +31,12 @@ namespace whisli::app {
 // and lights, and a wrong or unreachable broker only shows up as an error on the MQTT page.
 class MqttBridge {
  public:
-  MqttBridge(LightManager& lights, ControllerIo& controller) : lights_(lights), controller_(controller) {}
+  MqttBridge(LightManager& lights, ControllerIo& controller, ModbusRelayManager& relays) : lights_(lights), controller_(controller), relays_(relays) {}
 
   // From loop(): (re)connects when settings change, applies commands, publishes what changed.
   void poll();
-  // A recognised gesture (click, doubleClick, …) of controller input `input` (0-based).
-  void publishGesture(uint8_t input, const char* trigger);
+  // A recognised gesture (click, doubleClick, …) of a board or module input.
+  void publishGesture(InputRef input, const char* trigger);
 
  private:
   struct Command { char topic[96]; char payload[256]; };
@@ -55,9 +58,14 @@ class MqttBridge {
   bool publish(const String& topic, const String& payload, bool retain);
   String deviceJson() const;
   String lightStateJson(const LightSnapshot& light) const;
+  // Board inputs keep their original topics and ids ("1".."8"), so Home Assistant keeps its entities.
+  static String inputKey(InputRef input);
+  // Discovery slot of an input: the board's first, then 32 per module id.
+  static constexpr uint16_t kInputSlots = kControllerInputCount + kMaxRelayDevices * kMaxRelayChannels;
 
   LightManager& lights_;
   ControllerIo& controller_;
+  ModbusRelayManager& relays_;
   esp_mqtt_client_handle_t client_ = nullptr;
   QueueHandle_t commands_ = nullptr;
   QueueHandle_t outgoing_ = nullptr;      // Outgoing*, sent by senderTask
@@ -78,7 +86,8 @@ class MqttBridge {
   // kilobytes of internal RAM with many lights.
   uint32_t lightStates_[kMaxLights] = {};
   uint32_t lightDiscovery_[kMaxLights] = {};
-  String inputDiscovery_[kControllerInputCount];
+  // Per input slot: hash of the announced name; 0 nothing announced, 1 unknown (announce again).
+  uint32_t* inputDiscovery_ = new uint32_t[kInputSlots]();
 };
 
 }  // namespace whisli::app

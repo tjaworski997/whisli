@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "whisli/app/controller_io.hpp"
+#include "whisli/app/modbus_relays.hpp"
 #include "whisli/app/zones.hpp"
 
 namespace whisli::app {
@@ -36,7 +37,7 @@ struct HttpHook {
 
 // Where a request came from: fills the variables.
 struct HookContext {
-  String inputId;  // "controller.input-1"; empty for a test from the webhooks page
+  String inputId;  // "controller.input-1" or "relay-2.input-5"; empty for a test from the webhooks page
   String gesture;  // "click", "doubleClick", …
 };
 
@@ -52,7 +53,7 @@ struct HookResult {
 // timeout: a slow or unreachable server never holds up buttons and lights.
 class HttpHookManager {
  public:
-  HttpHookManager(ControllerIo& controller, ZoneManager& zones) : controller_(controller), zones_(zones) {}
+  HttpHookManager(ControllerIo& controller, ModbusRelayManager& relays, ZoneManager& zones) : controller_(controller), relays_(relays), zones_(zones) {}
 
   void begin();
   uint8_t count() const { return static_cast<uint8_t>(index_.size()); }
@@ -86,6 +87,7 @@ class HttpHookManager {
   bool save(const HttpHook& hook);
 
   ControllerIo& controller_;
+  ModbusRelayManager& relays_;
   ZoneManager& zones_;
   std::vector<Entry> index_;
   QueueHandle_t jobs_ = nullptr;

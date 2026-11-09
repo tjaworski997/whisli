@@ -13,8 +13,9 @@ export function formatLogAge(uptimeMs: number) {
 }
 
 /** Hardware channel label, e.g. `CH01`, `DI08`. */
-export function channelLabel(prefix: string, index: number) {
-  return `${prefix}${pad(index + 1)}`
+/** `firstNumber`: what the hardware calls the first channel; the N4DIH32 counts its X inputs from 0. */
+export function channelLabel(prefix: string, index: number, firstNumber = 1) {
+  return `${prefix}${pad(index + firstNumber)}`
 }
 
 export function fileSizeKb(file: File) {

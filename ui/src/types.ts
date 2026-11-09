@@ -33,7 +33,30 @@ export type ControllerDevice = {
   inputLastEvents: string[]
 }
 
-export type Device = Relay | ControllerDevice
+/** A Modbus module with button inputs (e.g. Eletechsup N4DIH32). `coilStart`: first holding register with input bits. */
+export type InputModule = {
+  kind: "inputModule"
+  id: string
+  name: string
+  profile: string
+  profileNameKey: string
+  address: number
+  channelCount: number
+  coilStart: number
+  active: boolean
+  online: boolean
+  inputPressed: boolean[]
+  inputUsed: boolean[]
+  inputNames: string[]
+  inputLastEvents: string[]
+}
+
+/** Modules on the RS-485 bus, which the user adds and removes. */
+export type ModbusDevice = Relay | InputModule
+export type Device = Relay | InputModule | ControllerDevice
+/** Devices with switchable outputs: the controller board and relay modules. */
+export type OutputDevice = Relay | ControllerDevice
+export const isOutputDevice = (device: Device): device is OutputDevice => device.kind !== "inputModule"
 
 export type SystemInfo = {
   firmware: { version: string; build: string }

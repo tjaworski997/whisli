@@ -5,6 +5,7 @@
 #include "whisli/app/button_input.hpp"
 #include "whisli/app/controller_io.hpp"
 #include "whisli/app/http_hooks.hpp"
+#include "whisli/app/input_ref.hpp"
 #include "whisli/app/lights.hpp"
 #include "whisli/app/modbus_relays.hpp"
 #include "whisli/app/presets.hpp"
@@ -64,7 +65,8 @@ class InputActionManager {
   bool test(uint16_t id);
   // A removed preset: actions that used it are left without one (and do nothing until one is chosen).
   void forgetPreset(uint8_t presetId);
-  void handleInputEvent(uint8_t input, ButtonEvent event);
+  // Control task. Module inputs arrive only while used (ModuleInputs filters them).
+  void handleInputEvent(InputRef input, ButtonEvent event);
 
   static bool parseTrigger(const String& value, ActionTrigger& output);
   static bool parseCommand(const String& value, ActionCommand& output);

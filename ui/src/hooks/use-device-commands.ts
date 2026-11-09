@@ -39,6 +39,7 @@ export function useDeviceCommands(device: Device, refresh: () => unknown) {
     renameInput: (index: number, name: string) => save("/api/v1/devices/input/name", { channel: index + 1, name }),
     setInputUsed: (index: number, used: boolean) => save("/api/v1/devices/input/usage", { channel: index + 1, used }),
     async toggleChannel(index: number) {
+      if (device.kind === "inputModule") return
       setBusyChannel(index)
       try { await send("/api/v1/devices/channel", { channel: index + 1, state: device.channels[index] ? "off" : "on" }, 350) } finally { setBusyChannel(null) }
     },

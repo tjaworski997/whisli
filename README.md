@@ -104,7 +104,7 @@ At this stage I use ready-made modules. I have not designed my own PCB.
 |---|---|
 | Waveshare ESP32-S3 PoE ETH 8DI/8DO | Main controller |
 | Waveshare Modbus RTU 16CH Relay | Switching ON/OFF circuits |
-| RS485 digital input module | Extra inputs for buttons |
+| Eletechsup N4DIH32 (32 DI, PNP, Modbus RTU) | Extra inputs for buttons |
 | DMX512 D24 24CH | Driving LED strips |
 | DMX512 S1-DR 2CH | Dimming compatible 230 V lighting |
 | TTL ↔ RS485 converter | Bus interface |
@@ -208,8 +208,9 @@ is for configuration and monitoring, and its changes show live.
 
 What it supports today:
 
-- **Inputs** — 8 built-in DIs with gesture recognition (click, double, triple,
-  long, hold).
+- **Inputs** — 8 built-in DIs and Modbus input modules (Eletechsup N4DIH32,
+  32 inputs, read every ~25 ms), all with gesture recognition (click, double,
+  triple, long, hold).
 - **Actions** — button gesture → on / off / toggle, set brightness, brighten /
   dim by n %, set a white tone or colour preset, call a webhook; target: a light,
   a relay or a webhook.
@@ -228,8 +229,8 @@ What it supports today:
   certificate errors. Sent in the background with a 5 s limit — buttons never wait for them.
 - **Notes** — plain text about the installation (hardware, wiring, addresses), saved
   as you type and included in the configuration backup.
-- **Devices** — 8 built-in DO outputs and up to 16 Modbus RTU relay modules
-  (Waveshare 16CH / 32CH or a custom profile).
+- **Devices** — 8 built-in DO outputs and up to 16 Modbus RTU modules on one bus:
+  relays (Waveshare 16CH / 32CH or a custom profile) and input modules.
 - **DMX512** — one universe on UART0 (GPIO43) for LED decoders and 230 V dimmers
   (e.g. S1-DR).
 - **Panel** — React, Polish and English, light and dark theme, live updates

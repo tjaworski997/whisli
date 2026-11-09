@@ -45,7 +45,7 @@ export function HomePage({ devices, onOpen }: { devices: Device[]; onOpen: (rout
 
   const configured = (lights ?? []).filter(light => light.kind !== "none")
   const lit = configured.filter(light => light.level > 0)
-  const relays = devices.filter(device => device.kind === "relay")
+  const relays = devices.filter(device => device.kind !== "controller")  // every module on the bus
   const offline = relays.filter(device => !device.online).length
   const actions = panel?.actions ?? []
   const activeActions = actions.filter(action => action.enabled && action.command && action.targetId).length

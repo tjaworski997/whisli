@@ -97,7 +97,9 @@ src/app/button_input.cpp     rozpoznawanie gestów (klik, podwójny, potrójny, 
 src/app/input_actions.cpp    zdarzenia (wejście+gest) i akcje (polecenie → cel), wykonanie
 src/app/lights.cpp           logiczne światła: typy, poziomy, fade, krzywe, CCT/RGB(W), zachowanie, chaos
 src/app/dmx_output.cpp       jedno uniwersum DMX512 na UART0/GPIO43, ciągłe ramki we własnym zadaniu
-src/app/modbus_relays.cpp    moduły przekaźników Modbus RTU (UART1), kolejka poleceń, własne zadanie
+src/app/modbus_relays.cpp    moduły Modbus RTU (UART1): przekaźniki i moduły wejść, kolejka poleceń, własne zadanie
+src/app/module_inputs.cpp    przyciski na modułach wejść: ostatni odczyt Modbus → ButtonInput, w zadaniu control
+src/app/input_ref.cpp        InputRef (płytka/moduł + kanał) ↔ id tekstowe wejścia, nazwa sprzętowa (DI03, X04)
 src/app/zones.cpp            strefy (płaskie) i przypisania obiektów do stref
 src/app/presets.cpp          nazwane barwy bieli (K) i kolory
 src/app/http_hooks.cpp       webhooki: zapis, zmienne, wysyłka w tle (esp_http_client)
@@ -123,7 +125,7 @@ scripts/                     build, osadzanie panelu, generator profili
 | Zadanie | Priorytet | Rola |
 |---|---|---|
 | `whisli-control` | 10 | wejścia → akcje → światła/wyjścia, fade; co 5 ms, rdzeń 1 |
-| Modbus | 9 | polecenia do modułów przekaźników |
+| Modbus | 9 | polecenia do przekaźników, odczyt modułów wejść co 25 ms |
 | DMX | 8 | ciągłe nadawanie ramek |
 | HTTP | 5 | panel, API, upload firmware |
 | MQTT, webhooki | 3 | Home Assistant, zapytania HTTP wychodzące |
@@ -137,6 +139,10 @@ sterowaniem.
 
 - `whisli::system::StateLock` — jedna rekurencyjna blokada wokół stanu aplikacji (światła,
   urządzenia, akcje, strefy, presety, webhooki).
+- Pomiar: `GET /api/v1/system` → `control` (`maxLateMs`, `maxBusyMs` i rozbicie: `maxLockWaitMs`,
+  `maxBoardMs`, `maxModulesMs`, `maxLightsMs`); `POST /api/v1/system/control/reset` zeruje. Znany
+  problem: trasy zapisujące konfigurację piszą do flasha pod blokadą — zadanie control czeka wtedy
+  100–370 ms (zmierzone 2026-11-09). Do naprawy: zapis poza blokadą, jak `takeStateToSave()`.
 - Trasy HTTP domyślnie (`StateAccess::Locked`) wykonują się pod blokadą, z buforowaniem odpowiedzi
   (wysyłka do sieci po zwolnieniu). **Trzymaj je krótkie.** Trasa, która czeka (np. test webhooka,
   sieć, upload), musi mieć `StateAccess::None` i brać `StateLock` sama, na chwilę.
@@ -171,7 +177,7 @@ sterowaniem.
 |---|---|---|
 | Światła | 128 | `kMaxLights` (128 RGBW = pełne uniwersum DMX) |
 | Akcje / zdarzenia | 1024 / 640 | `kMaxInputActions`, `kMaxInputEvents` |
-| Moduły przekaźników | 16 × do 32 kanałów | `kMaxRelayDevices`, `kMaxRelayChannels` |
+| Moduły Modbus (przekaźniki + wejścia) | 16 × do 32 kanałów | `kMaxRelayDevices`, `kMaxRelayChannels` |
 | Strefy / przypisania | 64 / 1024 | `kMaxZones`, `kMaxZoneAssignments` |
 | Presety | 64 | `kMaxPresets` |
 | Webhooki | 128 (URL 1024, nagłówki 2048, treść 4096 B) | `http_hooks.hpp` |
@@ -205,8 +211,9 @@ sprawdź pamięć (PSRAM vs wewnętrzny RAM), format zapisu i MQTT.
 
 ### Akcje (`input_actions`)
 
-- Zdarzenie = wejście (`controller.input-N`) + gest (`click`, `doubleClick`, `tripleClick`,
-  `longClick`, `hold`). Akcja = zdarzenie + polecenie + cel (+ wartość).
+- Zdarzenie = wejście (`controller.input-N` albo `relay-<id>.input-N` z modułu wejść) + gest
+  (`click`, `doubleClick`, `tripleClick`, `longClick`, `hold`). Akcja = zdarzenie + polecenie + cel
+  (+ wartość). W kodzie wejście to `InputRef` (`input_ref.hpp`), w zapisie i API — tekst.
 - Polecenia (`ActionCommand`, nazwy w API): `toggle`, `on`, `off`, `stepUp`/`stepDown` (o n %),
   `setLevel` (n %), `preset` (id presetu), `run` (webhook). `Retired*` — usunięte, zostawione dla
   zgodności wartości.
@@ -216,6 +223,24 @@ sprawdź pamięć (PSRAM vs wewnętrzny RAM), format zapisu i MQTT.
 - Nowe polecenie: dopisz na końcu enuma, nazwę w `commandName`/`parseCommand`, walidację w `fits`,
   wykonanie w `execute`, w panelu `commandLabels` + i18n + grupy w `actions-page.tsx`, ikonę na
   mapie.
+
+### Moduły wejść Modbus (`modbus_relays`, `module_inputs`)
+
+- Moduł wejść to urządzenie Modbus jak przekaźnik (ta sama tabela, `PersistedRelay`, id
+  `relay-<id>`); klasę (`RelaySnapshot::inputs`) wyznacza profil (`deviceClass: "input"` w
+  `data/device_profiles.json`), nie jest zapisywana. W API `kind: "inputModule"`.
+- Dla modułu wejść: `channels` = stan wejść (true = wciśnięty), `coilStart` = pierwszy rejestr,
+  `channelUsed`/`channelNames` = wejścia. Nowe wejścia startują jako nieużywane.
+- Odczyt: funkcja 03, 16 wejść na rejestr, wejście 1 w najmłodszym bicie (N4DIH32: adres z DIP
+  A0–A5, rejestry `0x00C0–0x00C1`, X00 = bit 0; na funkcje 01/02/04 nie odpowiada). Co 25 ms,
+  timeout 60 ms; po 4 nieudanych odczytach offline (wejścia puszczone) i odczyt co 1 s.
+- Zadanie control nie czyta magistrali: `ModuleInputs::poll()` bierze kopię `InputModuleState`
+  (spinlock, kilka słów) i karmi `ButtonInput` (debounce 0 — moduł filtruje, a odczyt co 25 ms i
+  tak przeskakuje drgania styków).
+- Moduł wejść nigdy nie jest celem (`setChannel`, światła, akcje, chaos go pomijają).
+- Diagnostyka: `GET /api/v1/devices/modbus/probe?address=&function=1..4&start=&count=` — jedno
+  zapytanie odczytu do dowolnego adresu, surowa odpowiedź hex. Do szukania adresu i rejestrów
+  nowego modułu.
 
 ### Webhooki (`http_hooks`)
 
@@ -236,11 +261,13 @@ sprawdź pamięć (PSRAM vs wewnętrzny RAM), format zapisu i MQTT.
 ### MQTT / Home Assistant (`mqtt_bridge`)
 
 - Tematy: `<base>/status` (LWT, retained), `<base>/light/<id>/state|set` (JSON schema),
-  `<base>/input/<n>/action` (gest jako zwykły tekst). Discovery jako jedno urządzenie
-  `whisli_<mac>`; jego nazwa w HA to `deviceName` z ustawień MQTT albo nazwa kontrolera.
+  `<base>/input/<n>/action` (gest jako zwykły tekst; wejścia modułów:
+  `<base>/input/m<id>_<n>/action`). Discovery jako jedno urządzenie `whisli_<mac>`; jego nazwa w
+  HA to `deviceName` z ustawień MQTT albo nazwa kontrolera.
 - Przycisk w HA = encja `event` (czyta `action` przez `value_template`) + wyzwalacze urządzenia
   (`device_automation`) na każdy gest. Identyfikatory (`unique_id`) się nie zmieniają — nie ruszaj
-  ich, bo HA straci przypisania encji.
+  ich, bo HA straci przypisania encji. Discovery wejść pamięta hashe nazw per slot (8 płytki + 16 ×
+  32 modułów); ogłaszane są tylko używane wejścia.
 - Zmiana tematu głównego albo brokera: `stop(true)` najpierw czyści stare retained (stany, status).
   Samo wyłączenie MQTT zostawia „offline” i nie usuwa encji.
 - Test połączenia (`mqtt::test`, `POST /api/v1/network/mqtt/test`): osobny, jednorazowy klient z
